@@ -13,7 +13,7 @@ import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
 
 export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { gameState, castVote, sendReaction, submitArgument } = useWebSocketContext();
+  const { gameState, castVote, sendReaction, submitArgument, nickname } = useWebSocketContext();
   const [argumentText, setArgumentText] = useState('');
   const [votedSide, setVotedSide] = useState<'side_a' | 'side_b' | null>(null);
 
@@ -32,6 +32,10 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
     setArgumentText('');
   };
 
+  const isDebater =
+    debate?.debater_a?.nickname === nickname ||
+    debate?.debater_b?.nickname === nickname;
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Top Controller Bar */}
@@ -45,40 +49,68 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Phase & Topic */}
+        {/* Phase & Topic Card */}
         <View style={styles.topicCard}>
           <Text style={styles.phaseBadge}>FASE: {phase}</Text>
-          <Text style={styles.topicText}>"{debate?.topic || 'Tema em debate'}"</Text>
+          <Text style={styles.topicText}>"{debate?.topic || 'Abacaxi na pizza é crime ou alta gastronomia?'}"</Text>
         </View>
 
-        {/* Dynamic Role Views */}
-        {phase === 'OPENING_ARGUMENTS' && (
+        {/* Dynamic Views per Phase */}
+        {phase === 'LOBBY' && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Defenda seu Lado!</Text>
-            <Text style={styles.sectionSubtitle}>Digite seu argumento e envie antes do tempo zerar:</Text>
+            <Text style={styles.sectionTitle}>⚖️ Tribunal em Preparação</Text>
+            <Text style={styles.sectionSubtitle}>
+              Prepare-se! Em instantes os debatedores apresentarão suas teses de acusação e defesa.
+            </Text>
+            <View style={styles.matchupRow}>
+              <View style={[styles.playerBadge, { borderColor: colors.brand.action }]}>
+                <Text style={[styles.playerBadgeLabel, { color: colors.brand.action }]}>LADO A</Text>
+                <Text style={styles.playerBadgeName}>{debate?.debater_a?.nickname || 'Defesa A'}</Text>
+              </View>
+              <Text style={styles.vsText}>VS</Text>
+              <View style={[styles.playerBadge, { borderColor: colors.brand.mint }]}>
+                <Text style={[styles.playerBadgeLabel, { color: colors.brand.mint }]}>LADO B</Text>
+                <Text style={styles.playerBadgeName}>{debate?.debater_b?.nickname || 'Defesa B'}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {(phase === 'OPENING_ARGUMENTS' || phase === 'REBUTTAL') && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>
+              {phase === 'OPENING_ARGUMENTS' ? 'Argumentos Iniciais' : 'Fase de Réplica'}
+            </Text>
+            <Text style={styles.sectionSubtitle}>
+              {isDebater
+                ? 'Você é um dos debatedores! Digite sua tese e envie para o palco:'
+                : 'Você está no júri. Acompanhe os argumentos ao vivo e prepare seu voto:'}
+            </Text>
+
             <TextInput
               style={styles.textArea}
               value={argumentText}
               onChangeText={setArgumentText}
-              placeholder="Escreva seu argumento aqui..."
+              placeholder="Digite seu argumento ou ponto de vista aqui..."
               placeholderTextColor={colors.ink.muted}
               multiline
               numberOfLines={4}
             />
             <TouchableOpacity style={styles.submitArgButton} onPress={handleSubmitArg}>
-              <Text style={styles.submitArgButtonText}>Enviar Argumento</Text>
+              <Text style={styles.submitArgButtonText}>Enviar Argumento ao Palco</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Voting View (Massive Tactile Buttons) */}
+        {/* Voting View (Massive Tactile Buzzer Buttons) */}
         {phase === 'VOTING' && (
           <View style={styles.votingContainer}>
             <Text style={styles.votingTitle}>Qual lado venceu?</Text>
-            <Text style={styles.votingSubtitle}>Escolha seu voto no painel do júri:</Text>
+            <Text style={styles.votingSubtitle}>Toque no cartão para computar seu voto na TV:</Text>
 
+            {/* Side A (Coral) Tactile Button */}
             <TouchableOpacity
-              activeOpacity={0.8}
+              activeOpacity={0.75}
               style={[
                 styles.hugeVoteButton,
                 styles.voteButtonSideA,
@@ -86,15 +118,20 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
               ]}
               onPress={() => handleVote('side_a')}
             >
-              <Text style={styles.hugeVoteButtonLabel}>LADO A</Text>
+              <Text style={styles.hugeVoteButtonLabel}>LADO A (CORAL)</Text>
               <Text style={styles.hugeVoteButtonName}>
-                {debate?.debater_a?.nickname || 'Defensor A'}
+                {debate?.debater_a?.nickname || 'Defesa A'}
               </Text>
-              {votedSide === 'side_a' && <Text style={styles.votedBadge}>✓ VOTO REGISTRADO</Text>}
+              {votedSide === 'side_a' && (
+                <View style={styles.votedBadgeContainer}>
+                  <Text style={styles.votedBadge}>✓ SEU VOTO</Text>
+                </View>
+              )}
             </TouchableOpacity>
 
+            {/* Side B (Mint) Tactile Button */}
             <TouchableOpacity
-              activeOpacity={0.8}
+              activeOpacity={0.75}
               style={[
                 styles.hugeVoteButton,
                 styles.voteButtonSideB,
@@ -102,11 +139,15 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
               ]}
               onPress={() => handleVote('side_b')}
             >
-              <Text style={[styles.hugeVoteButtonLabel, { color: colors.ink.main }]}>LADO B</Text>
+              <Text style={[styles.hugeVoteButtonLabel, { color: colors.ink.main }]}>LADO B (MENTA)</Text>
               <Text style={[styles.hugeVoteButtonName, { color: colors.ink.main }]}>
-                {debate?.debater_b?.nickname || 'Defensor B'}
+                {debate?.debater_b?.nickname || 'Defesa B'}
               </Text>
-              {votedSide === 'side_b' && <Text style={styles.votedBadge}>✓ VOTO REGISTRADO</Text>}
+              {votedSide === 'side_b' && (
+                <View style={styles.votedBadgeContainer}>
+                  <Text style={[styles.votedBadge, { color: colors.ink.main }]}>✓ SEU VOTO</Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         )}
@@ -114,23 +155,36 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
         {/* Results View */}
         {phase === 'RESULTS' && (
           <View style={styles.card}>
-            <Text style={styles.winnerTitle}>🏆 Veredito Final!</Text>
-            <Text style={styles.resultsText}>
-              Lado A: {debate?.votes_count?.side_a ?? 0} votos | Lado B: {debate?.votes_count?.side_b ?? 0} votos
+            <Text style={styles.winnerTitle}>🏆 Veredito dos Jurados</Text>
+            <Text style={styles.winnerSubtitle}>
+              {debate?.winner_side === 'side_a'
+                ? 'Lado A conquistou a vitória!'
+                : debate?.winner_side === 'side_b'
+                ? 'Lado B conquistou a vitória!'
+                : 'Empate total no veredito!'}
             </Text>
+            <View style={styles.scoreRow}>
+              <Text style={[styles.scoreText, { color: colors.brand.action }]}>
+                Lado A: {debate?.votes_count?.side_a ?? 0}
+              </Text>
+              <Text style={styles.scoreTextDivider}>•</Text>
+              <Text style={[styles.scoreText, { color: colors.brand.mint }]}>
+                Lado B: {debate?.votes_count?.side_b ?? 0}
+              </Text>
+            </View>
           </View>
         )}
 
-        {/* Live Reaction Emojis Burst */}
+        {/* Live Audience Emojis Burst */}
         <View style={styles.reactionSection}>
-          <Text style={styles.reactionTitle}>Reações ao Vivo na TV:</Text>
+          <Text style={styles.reactionTitle}>Disparar Reações para o Modo TV:</Text>
           <View style={styles.reactionRow}>
             {['🔥', '👏', '🤯', '🍅'].map((emoji) => (
               <TouchableOpacity
                 key={emoji}
                 style={styles.reactionButton}
                 onPress={() => sendReaction(emoji)}
-                activeOpacity={0.6}
+                activeOpacity={0.5}
               >
                 <Text style={styles.reactionEmoji}>{emoji}</Text>
               </TouchableOpacity>
@@ -157,9 +211,9 @@ const styles = StyleSheet.create({
   },
   backButton: {
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
   },
   backButtonText: {
     color: colors.surface.white,
@@ -168,7 +222,7 @@ const styles = StyleSheet.create({
   },
   timerContainer: {
     backgroundColor: 'rgba(253, 203, 110, 0.2)',
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 16,
     borderWidth: 1,
@@ -186,8 +240,8 @@ const styles = StyleSheet.create({
   },
   topicCard: {
     backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 24,
+    padding: 18,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
@@ -195,7 +249,7 @@ const styles = StyleSheet.create({
     color: colors.brand.reward,
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1,
+    letterSpacing: 1.5,
     marginBottom: 4,
   },
   topicText: {
@@ -208,6 +262,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface.white,
     borderRadius: 24,
     padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
   },
   sectionTitle: {
     fontSize: 18,
@@ -218,25 +277,61 @@ const styles = StyleSheet.create({
   sectionSubtitle: {
     fontSize: 13,
     color: colors.ink.muted,
-    marginBottom: 12,
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  matchupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  playerBadge: {
+    flex: 1,
+    padding: 12,
+    borderWidth: 2,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  playerBadgeLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  playerBadgeName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.ink.main,
+  },
+  vsText: {
+    paddingHorizontal: 12,
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.ink.muted,
   },
   textArea: {
     backgroundColor: colors.surface.light,
     borderWidth: 1,
     borderColor: colors.surface.border,
-    borderRadius: 16,
-    padding: 12,
+    borderRadius: 18,
+    padding: 14,
     fontSize: 14,
     color: colors.ink.main,
-    minHeight: 90,
+    minHeight: 100,
     textAlignVertical: 'top',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   submitArgButton: {
     backgroundColor: colors.brand.primary,
     paddingVertical: 14,
-    borderRadius: 16,
+    borderRadius: 18,
     alignItems: 'center',
+    shadowColor: colors.brand.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 3,
   },
   submitArgButtonText: {
     color: colors.surface.white,
@@ -244,28 +339,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   votingContainer: {
-    gap: 12,
+    gap: 14,
   },
   votingTitle: {
     color: colors.surface.white,
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: '900',
     textAlign: 'center',
   },
   votingSubtitle: {
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.7)',
     fontSize: 13,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   hugeVoteButton: {
     borderRadius: 24,
-    paddingVertical: 28,
+    paddingVertical: 32,
     paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderBottomWidth: 6,
-    borderBottomColor: 'rgba(0,0,0,0.25)',
+    borderBottomColor: 'rgba(0,0,0,0.3)',
   },
   voteButtonSideA: {
     backgroundColor: colors.brand.action, // Coral
@@ -274,47 +369,65 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand.mint,   // Mint
   },
   selectedVoteButton: {
-    borderWidth: 3,
+    borderWidth: 4,
     borderColor: colors.brand.reward,
   },
   hugeVoteButtonLabel: {
     color: colors.surface.white,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
     letterSpacing: 2,
   },
   hugeVoteButtonName: {
     color: colors.surface.white,
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '900',
     marginTop: 4,
   },
-  votedBadge: {
+  votedBadgeContainer: {
     marginTop: 8,
-    color: colors.surface.white,
-    fontWeight: '800',
-    fontSize: 12,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    paddingHorizontal: 10,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: 12,
+  },
+  votedBadge: {
+    color: colors.surface.white,
+    fontWeight: '900',
+    fontSize: 12,
+    letterSpacing: 1,
   },
   winnerTitle: {
     fontSize: 22,
     fontWeight: '900',
     color: colors.brand.primary,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  resultsText: {
-    fontSize: 14,
+  winnerSubtitle: {
+    fontSize: 15,
     color: colors.ink.main,
     textAlign: 'center',
-    fontWeight: '600',
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  scoreText: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  scoreTextDivider: {
+    fontSize: 18,
+    color: colors.ink.muted,
   },
   reactionSection: {
     backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 16,
     marginTop: 8,
   },
@@ -322,7 +435,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.7)',
     fontSize: 12,
     fontWeight: '700',
-    marginBottom: 10,
+    marginBottom: 12,
     textAlign: 'center',
   },
   reactionRow: {
@@ -330,16 +443,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
   },
   reactionButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderBottomWidth: 3,
+    borderBottomWidth: 4,
     borderBottomColor: 'rgba(0,0,0,0.3)',
   },
   reactionEmoji: {
-    fontSize: 28,
+    fontSize: 30,
   },
 });
