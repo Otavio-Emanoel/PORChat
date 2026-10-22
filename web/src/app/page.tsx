@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useWebSocket } from '@/lib/useWebSocket';
-import { MessageSquare, Tv, Send, Flame, Sparkles, Users, Award, Swords } from 'lucide-react';
+import { MessageSquare, Tv, Send, Sparkles, Users, Swords, Zap, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 
 const ROOMS = [
@@ -11,11 +11,12 @@ const ROOMS = [
   { id: 'f1e2d3c4-b5a6-9876-5432-10fedcba9876', name: 'Arena Quiz Relâmpago', code: 'QZ-3000' },
 ];
 
-const PROFILES = ['Otavio', 'Pedro', 'Raul'];
+const PRESET_PROFILES = ['Otavio', 'Pedro', 'Raul'];
 
 export default function ChatPage() {
   const [selectedRoom, setSelectedRoom] = useState(ROOMS[0]);
   const [nickname, setNickname] = useState('Otavio');
+  const [customNick, setCustomNick] = useState('');
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -45,6 +46,19 @@ export default function ChatPage() {
     });
   };
 
+  const handleStartQuiz = () => {
+    sendAction('game:start', {
+      game_type: 'quiz',
+    });
+  };
+
+  const handleAddCustomNick = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customNick.trim()) return;
+    setNickname(customNick.trim());
+    setCustomNick('');
+  };
+
   return (
     <div className="flex h-screen bg-surface-light text-ink-main overflow-hidden font-body">
       {/* Sidebar */}
@@ -60,7 +74,7 @@ export default function ChatPage() {
                 <h1 className="font-heading text-xl tracking-tight text-ink-main leading-none">
                   PORChat
                 </h1>
-                <span className="text-xs text-brand-primary font-medium">Chat & Arena</span>
+                <span className="text-xs text-brand-primary font-medium">Chat & Mini-Games</span>
               </div>
             </div>
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand-mint/15 text-brand-mint text-xs font-semibold">
@@ -69,13 +83,13 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* User Profile Selector */}
+          {/* User Profile Multi-Tab Switcher */}
           <div className="p-4 mx-4 my-3 bg-gray-50 rounded-2xl border border-gray-100">
             <label className="text-xs font-bold text-ink-muted uppercase tracking-wider block mb-2">
-              Seu Perfil Atual
+              Perfil Atual: <span className="text-brand-primary">{nickname}</span>
             </label>
-            <div className="flex gap-2">
-              {PROFILES.map((p) => (
+            <div className="flex gap-2 mb-2">
+              {PRESET_PROFILES.map((p) => (
                 <button
                   key={p}
                   type="button"
@@ -90,12 +104,29 @@ export default function ChatPage() {
                 </button>
               ))}
             </div>
+            {/* Custom Nickname Input */}
+            <form onSubmit={handleAddCustomNick} className="flex gap-1.5 mt-2">
+              <input
+                type="text"
+                placeholder="Novo apelido..."
+                value={customNick}
+                onChange={(e) => setCustomNick(e.target.value)}
+                className="flex-1 bg-white border border-gray-200 rounded-xl px-2.5 py-1 text-xs text-ink-main focus:outline-none focus:ring-1 focus:ring-brand-primary"
+              />
+              <button
+                type="submit"
+                disabled={!customNick.trim()}
+                className="px-2 py-1 bg-gray-200 text-ink-main rounded-xl text-xs font-bold hover:bg-brand-primary hover:text-white disabled:opacity-40 transition-colors"
+              >
+                <UserPlus size={14} />
+              </button>
+            </form>
           </div>
 
           {/* Room Channels */}
           <div className="px-3">
             <h2 className="px-3 text-xs font-bold text-ink-muted uppercase tracking-wider mb-2">
-              Salas Disponíveis
+              Canais do Chat
             </h2>
             <div className="space-y-1">
               {ROOMS.map((room) => {
@@ -155,7 +186,14 @@ export default function ChatPage() {
               className="py-2 px-3.5 bg-brand-action text-white rounded-xl text-xs font-bold flex items-center gap-1.5 tactile-btn hover:brightness-105"
             >
               <Swords size={16} />
-              <span>Iniciar Debate</span>
+              <span>Modo Debate</span>
+            </button>
+            <button
+              onClick={handleStartQuiz}
+              className="py-2 px-3.5 bg-brand-primary text-white rounded-xl text-xs font-bold flex items-center gap-1.5 tactile-btn hover:brightness-105"
+            >
+              <Zap size={16} className="text-brand-reward" />
+              <span>Quiz Relâmpago</span>
             </button>
             <Link
               href={`/tv/${selectedRoom.id}`}
@@ -173,11 +211,11 @@ export default function ChatPage() {
           <div className="bg-brand-primary text-white px-6 py-3 flex items-center justify-between shadow-md animate-fade-in">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center">
-                <Swords size={18} />
+                {gameState.game_type === 'quiz' ? <Zap size={18} className="text-brand-reward" /> : <Swords size={18} />}
               </div>
               <div>
                 <p className="font-heading text-sm font-bold">
-                  {gameState.game_type === 'debate' ? '⚖️ Modo Debate Ativo!' : '⚡ Quiz em Andamento!'}
+                  {gameState.game_type === 'quiz' ? '⚡ Quiz Relâmpago Ativo!' : '⚖️ Modo Debate em Julgamento!'}
                 </p>
                 <p className="text-xs text-white/80">Fase atual: {gameState.phase}</p>
               </div>
@@ -198,7 +236,7 @@ export default function ChatPage() {
                 <Sparkles size={28} />
               </div>
               <p className="font-heading text-lg font-bold text-ink-main">Nenhuma mensagem ainda</p>
-              <p className="text-sm max-w-sm">Mande um "Oi", inicie um debate ou ligue o Modo TV na tela grande!</p>
+              <p className="text-sm max-w-sm">Mande uma mensagem, inicie o Debate ou o Quiz e ligue o Modo TV!</p>
             </div>
           ) : (
             messages.map((msg) => {

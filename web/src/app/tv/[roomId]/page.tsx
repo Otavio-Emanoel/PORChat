@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useWebSocket } from '@/lib/useWebSocket';
-import { Flame, Sparkles, Trophy, Users, Swords, Crown, HeartHandshake } from 'lucide-react';
+import { Flame, Sparkles, Trophy, Users, Swords, Crown, Zap, CheckCircle2 } from 'lucide-react';
 
 interface Particle {
   id: number;
@@ -10,6 +10,13 @@ interface Particle {
   left: number;
   size: number;
 }
+
+const QUIZ_OPTION_COLORS: Record<'A' | 'B' | 'C' | 'D', { bg: string; border: string; text: string }> = {
+  A: { bg: 'bg-[#FF6B6B]/20', border: 'border-[#FF6B6B]', text: 'text-[#FF6B6B]' },
+  B: { bg: 'bg-[#48DBFB]/20', border: 'border-[#48DBFB]', text: 'text-[#48DBFB]' },
+  C: { bg: 'bg-[#FECA57]/20', border: 'border-[#FECA57]', text: 'text-[#FECA57]' },
+  D: { bg: 'bg-[#1DD1A1]/20', border: 'border-[#1DD1A1]', text: 'text-[#1DD1A1]' },
+};
 
 export default function TVModePage({ params }: { params: { roomId: string } }) {
   const { roomId } = params;
@@ -21,9 +28,13 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
     clientType: 'tv',
   });
 
+  const isQuiz = gameState?.game_type === 'quiz';
   const debateState = gameState?.debate_state;
+  const quizState = gameState?.quiz_state;
   const phase = gameState?.phase || 'CHAT';
   const remaining = gameState?.remaining_seconds ?? 0;
+
+  // Debate stats
   const sideAVotes = debateState?.votes_count?.side_a ?? 0;
   const sideBVotes = debateState?.votes_count?.side_b ?? 0;
   const totalVotes = sideAVotes + sideBVotes;
@@ -35,15 +46,15 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
     const handleReaction = (emoji: string) => {
       const id = Date.now() + Math.random();
       const left = Math.floor(Math.random() * 85) + 5;
-      const size = Math.floor(Math.random() * 24) + 36; // 36px to 60px
+      const size = Math.floor(Math.random() * 24) + 36;
       setParticles((prev) => [...prev.slice(-25), { id, emoji, left, size }]);
       setTimeout(() => {
         setParticles((prev) => prev.filter((p) => p.id !== id));
       }, 3500);
     };
 
-    // Auto generate celebratory particles during RESULTS
-    if (phase === 'RESULTS') {
+    // Auto generate celebratory particles during RESULTS / FINAL_RESULTS
+    if (phase === 'RESULTS' || phase === 'FINAL_RESULTS') {
       const interval = setInterval(() => {
         handleReaction('🎉');
         handleReaction('👑');
@@ -110,14 +121,158 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             </div>
             <h2 className="text-4xl md:text-5xl font-black mb-4">Aguardando Início da Partida</h2>
             <p className="text-white/60 text-lg font-body max-w-md mx-auto mb-8">
-              Inicie o **Modo Debate** ou **Quiz** pelo chat no celular ou computador para transmitir para esta tela!
+              Inicie o **Modo Debate** ou o **Quiz Relâmpago** pelo chat no computador ou celular para transmitir para esta tela!
             </p>
             <div className="inline-flex items-center gap-3 px-6 py-3.5 rounded-2xl bg-white/10 border border-white/20 text-brand-reward text-lg">
               <Sparkles size={22} />
               <span>Código da Sala: {roomId.slice(0, 8).toUpperCase()}</span>
             </div>
           </div>
+        ) : isQuiz ? (
+          /* ==================================================================== */
+          /* ======================== TRIVIA QUIZ STAGE ========================= */
+          /* ==================================================================== */
+          <div className="w-full max-w-6xl flex flex-col items-center">
+            {/* Clock & Phase Banner */}
+            <div className="flex flex-col items-center mb-6">
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-reward/20 border border-brand-reward/30 text-brand-reward text-sm font-bold uppercase tracking-wider mb-2">
+                <Zap size={16} />
+                <span>QUIZ RELÂMPAGO • {phase}</span>
+              </div>
+              <div className="text-7xl md:text-9xl font-black font-mono text-brand-reward tracking-tighter drop-shadow-[0_0_40px_rgba(253,203,110,0.6)]">
+                {remaining}s
+              </div>
+            </div>
+
+            {/* Quiz Views based on Phase */}
+            {phase === 'LOBBY' && (
+              <div className="w-full max-w-3xl bg-white/5 border border-white/10 rounded-3xl p-10 backdrop-blur-md shadow-2xl text-center">
+                <h2 className="text-3xl md:text-5xl font-black mb-4 text-brand-reward">
+                  ⚡ Preparem seus Celulares!
+                </h2>
+                <p className="text-lg text-white/80 font-body">
+                  O Quiz Relâmpago vai começar em {remaining} segundos! Quanto mais rápido você responder corretamente, mais pontos acumulará.
+                </p>
+              </div>
+            )}
+
+            {(phase === 'QUESTION' || phase === 'REVEAL') && (
+              <div className="w-full space-y-6">
+                {/* Question Prompt Card */}
+                <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-8 backdrop-blur-md shadow-2xl text-center">
+                  <span className="text-xs font-mono uppercase text-brand-reward tracking-widest block mb-2">
+                    Pergunta {(quizState?.current_question_index ?? 0) + 1} de {quizState?.total_questions ?? 3}
+                  </span>
+                  <h2 className="text-2xl md:text-4xl font-black leading-snug">
+                    "{quizState?.current_question?.prompt || 'Carregando pergunta...'}"
+                  </h2>
+                </div>
+
+                {/* 4 Colored Options Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                  {(['A', 'B', 'C', 'D'] as const).map((opt) => {
+                    const optionText = quizState?.current_question?.options?.[opt] || '';
+                    const isCorrect = phase === 'REVEAL' && quizState?.correct_option === opt;
+                    const answersCount = quizState?.answers_distribution?.[opt] ?? 0;
+                    const colorScheme = QUIZ_OPTION_COLORS[opt];
+
+                    return (
+                      <div
+                        key={opt}
+                        className={`rounded-3xl p-6 flex items-center justify-between border-2 transition-all duration-300 shadow-xl ${
+                          isCorrect
+                            ? 'bg-emerald-500/30 border-emerald-400 scale-[1.02] shadow-emerald-500/30'
+                            : phase === 'REVEAL'
+                            ? 'opacity-40 bg-white/5 border-white/10'
+                            : `${colorScheme.bg} ${colorScheme.border}`
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div
+                            className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl border-2 ${
+                              isCorrect
+                                ? 'bg-emerald-400 text-ink-main border-emerald-300'
+                                : `${colorScheme.border} ${colorScheme.text} bg-black/20`
+                            }`}
+                          >
+                            {opt}
+                          </div>
+                          <span className="text-xl md:text-2xl font-bold text-white">
+                            {optionText}
+                          </span>
+                        </div>
+
+                        {phase === 'REVEAL' && (
+                          <div className="flex items-center gap-2">
+                            {isCorrect && <CheckCircle2 size={24} className="text-emerald-400" />}
+                            <span className="font-mono text-lg font-bold text-white/80">
+                              {answersCount} {answersCount === 1 ? 'voto' : 'votos'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {phase === 'LEADERBOARD' && (
+              <div className="w-full max-w-3xl bg-white/5 border border-white/10 rounded-3xl p-8 backdrop-blur-md shadow-2xl">
+                <h3 className="text-2xl md:text-3xl font-black text-brand-reward mb-6 text-center">
+                  📊 Placar da Rodada
+                </h3>
+                <div className="space-y-3">
+                  {(quizState?.leaderboard || []).slice(0, 5).map((entry, idx) => (
+                    <div
+                      key={entry.user_id}
+                      className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10"
+                    >
+                      <div className="flex items-center gap-4">
+                        <span className="w-8 h-8 rounded-xl bg-brand-primary/30 flex items-center justify-center font-mono font-bold text-brand-reward">
+                          #{idx + 1}
+                        </span>
+                        <span className="text-xl font-bold text-white">{entry.nickname}</span>
+                      </div>
+                      <div className="flex items-center gap-4 font-mono">
+                        <span className="text-emerald-400 font-bold">+{entry.round_score} pts</span>
+                        <span className="text-2xl font-black text-brand-reward">{entry.total_score} pts</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {phase === 'FINAL_RESULTS' && (
+              <div className="w-full max-w-3xl bg-gradient-to-b from-brand-reward/25 to-brand-reward/5 border-2 border-brand-reward/50 rounded-3xl p-10 backdrop-blur-lg shadow-2xl text-center">
+                <div className="w-24 h-24 rounded-full bg-brand-reward/20 mx-auto flex items-center justify-center mb-4">
+                  <Crown size={52} className="text-brand-reward" />
+                </div>
+                <h3 className="text-4xl md:text-5xl font-black text-brand-reward mb-2">
+                  🏆 CAMPEÃO DO QUIZ!
+                </h3>
+                <p className="text-2xl font-bold text-white mb-6">
+                  {quizState?.leaderboard?.[0]?.nickname || 'Vencedor'} venceu com{' '}
+                  <span className="text-brand-reward font-mono">
+                    {quizState?.leaderboard?.[0]?.total_score ?? 0} pontos!
+                  </span>
+                </p>
+                <div className="space-y-2 max-w-md mx-auto">
+                  {(quizState?.leaderboard || []).slice(0, 3).map((entry, idx) => (
+                    <div key={entry.user_id} className="flex justify-between items-center py-2 px-4 rounded-xl bg-black/30 font-mono">
+                      <span>#{idx + 1} {entry.nickname}</span>
+                      <span className="text-brand-reward font-bold">{entry.total_score} pts</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
+          /* ==================================================================== */
+          /* ======================== DEBATE COURT STAGE ======================== */
+          /* ==================================================================== */
           <div className="w-full max-w-6xl flex flex-col items-center">
             {/* Clock & Phase Banner */}
             <div className="flex flex-col items-center mb-6">
