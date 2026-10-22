@@ -9,6 +9,12 @@ export type UserRole = 'owner' | 'admin' | 'member';
 
 export type GameRole = 'DEBATER' | 'JUROR' | 'TRIVIA_PLAYER' | 'SPECTATOR';
 
+export type QuizOptionKey = 'A' | 'B' | 'C' | 'D';
+
+export type DebateSide = 'side_a' | 'side_b';
+
+export type ReactionEmoji = '🔥' | '🍅' | '👏' | '🤯' | '🎉' | '⭐' | '👑';
+
 export interface User {
   id: string;
   nickname: string;
@@ -159,16 +165,11 @@ export interface DebateState {
   winner_side?: 'side_a' | 'side_b' | 'tie' | null;
 }
 
-export interface QuizQuestion {
+export interface TriviaQuestion {
   id: string;
   index: number;
   prompt: string;
-  options: {
-    A: string;
-    B: string;
-    C: string;
-    D: string;
-  };
+  options: Record<QuizOptionKey, string>;
   total_time_seconds: number;
 }
 
@@ -183,9 +184,9 @@ export interface QuizLeaderboardEntry {
 export interface QuizState {
   current_question_index: number;
   total_questions: number;
-  current_question?: QuizQuestion;
-  answers_distribution?: Record<'A' | 'B' | 'C' | 'D', number>;
-  correct_option?: 'A' | 'B' | 'C' | 'D';
+  current_question?: TriviaQuestion;
+  answers_distribution?: Record<QuizOptionKey, number>;
+  correct_option?: QuizOptionKey | '';
   leaderboard: QuizLeaderboardEntry[];
 }
 
@@ -207,11 +208,11 @@ export interface DebateSubmitArgumentPayload {
 }
 
 export interface DebateCastVotePayload {
-  choice: 'side_a' | 'side_b';
+  choice: DebateSide;
 }
 
 export interface DebateReactionPayload {
-  emoji: '🔥' | '🍅' | '👏' | '🤯' | string;
+  emoji: ReactionEmoji | string;
 }
 
 export interface TvReactionStreamPayload {
@@ -226,13 +227,26 @@ export interface TvReactionStreamPayload {
 // -------------------------------------------------------------
 
 export interface QuizSubmitAnswerPayload {
-  question_index: number;
-  choice: 'A' | 'B' | 'C' | 'D';
+  question_index?: number;
+  choice: QuizOptionKey;
   client_sent_ms: number;
 }
 
 export interface QuizRoundRevealPayload {
-  correct_option: 'A' | 'B' | 'C' | 'D';
-  answers_distribution: Record<'A' | 'B' | 'C' | 'D', number>;
+  correct_option: QuizOptionKey;
+  answers_distribution: Record<QuizOptionKey, number>;
   leaderboard: QuizLeaderboardEntry[];
+}
+
+// -------------------------------------------------------------
+// Demo Bots Payloads
+// -------------------------------------------------------------
+
+export interface BotsTogglePayload {
+  enabled: boolean;
+  count?: number;
+}
+
+export interface BotsStatusPayload {
+  active_bots: string[];
 }
