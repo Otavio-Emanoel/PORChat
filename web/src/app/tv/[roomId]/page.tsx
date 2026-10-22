@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useWebSocket } from '@/lib/useWebSocket';
-import { Flame, Sparkles, Trophy, Users, Swords, Crown, Zap, CheckCircle2 } from 'lucide-react';
+import { Flame, Sparkles, Trophy, Users, Swords, Crown, Zap, CheckCircle2, QrCode, Bot } from 'lucide-react';
 
 interface Particle {
   id: number;
@@ -21,8 +21,9 @@ const QUIZ_OPTION_COLORS: Record<'A' | 'B' | 'C' | 'D', { bg: string; border: st
 export default function TVModePage({ params }: { params: { roomId: string } }) {
   const { roomId } = params;
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [botsActive, setBotsActive] = useState(false);
 
-  const { onlineUsers, gameState } = useWebSocket({
+  const { onlineUsers, gameState, sendAction } = useWebSocket({
     roomId,
     nickname: 'TV_Stage_Display',
     clientType: 'tv',
@@ -40,6 +41,12 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
   const totalVotes = sideAVotes + sideBVotes;
   const sideAPercent = totalVotes > 0 ? Math.round((sideAVotes / totalVotes) * 100) : 50;
   const sideBPercent = totalVotes > 0 ? 100 - sideAPercent : 50;
+
+  // Toggle demo bots
+  const handleToggleBots = () => {
+    setBotsActive((prev) => !prev);
+    sendAction('bots:toggle', {});
+  };
 
   // Listen to incoming emoji reactions and spawn floating particles
   useEffect(() => {
@@ -100,7 +107,19 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleToggleBots}
+            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold transition-all tactile-btn ${
+              botsActive
+                ? 'bg-brand-reward text-ink-main shadow-lg shadow-brand-reward/20'
+                : 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
+            }`}
+          >
+            <Bot size={16} />
+            <span>{botsActive ? '🤖 5 Bots Ativos' : '🤖 Ativar Bots de Teste'}</span>
+          </button>
+
           <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/10 text-sm">
             <Users size={18} className="text-brand-mint" />
             <span className="font-bold">{onlineUsers.length} Participantes</span>
@@ -115,17 +134,42 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
       {/* Main TV Stage Area */}
       <main className="flex-1 flex flex-col items-center justify-center my-6 z-10">
         {phase === 'CHAT' ? (
-          <div className="max-w-2xl bg-white/5 border border-white/10 rounded-3xl p-12 backdrop-blur-md shadow-2xl text-center">
-            <div className="w-24 h-24 rounded-3xl bg-brand-primary/20 text-brand-primary mx-auto flex items-center justify-center mb-6">
-              <Swords size={48} className="text-brand-reward animate-pulse" />
+          <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 gap-8 items-center bg-white/5 border border-white/10 rounded-3xl p-10 md:p-12 backdrop-blur-md shadow-2xl">
+            {/* Left: Instructions */}
+            <div className="text-left space-y-4">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-brand-reward/20 text-brand-reward text-xs font-bold uppercase tracking-wider">
+                <Sparkles size={14} />
+                <span>Lobby Aberto</span>
+              </div>
+              <h2 className="text-3xl md:text-5xl font-black leading-tight text-white">
+                Entre no Jogo pelo Celular!
+              </h2>
+              <p className="text-white/60 text-base font-body leading-relaxed">
+                Aponte a câmera para o QR Code ou acesse pelo navegador para votar em tempo real nos debates e no quiz!
+              </p>
+              <div className="pt-2">
+                <button
+                  onClick={handleToggleBots}
+                  className="px-5 py-3 rounded-2xl bg-brand-primary text-white text-sm font-bold flex items-center gap-2.5 tactile-btn hover:brightness-110 shadow-lg shadow-brand-primary/30"
+                >
+                  <Bot size={18} />
+                  <span>{botsActive ? 'Parar Simulação de Bots' : 'Popular com Bots para Apresentação'}</span>
+                </button>
+              </div>
             </div>
-            <h2 className="text-4xl md:text-5xl font-black mb-4">Aguardando Início da Partida</h2>
-            <p className="text-white/60 text-lg font-body max-w-md mx-auto mb-8">
-              Inicie o **Modo Debate** ou o **Quiz Relâmpago** pelo chat no computador ou celular para transmitir para esta tela!
-            </p>
-            <div className="inline-flex items-center gap-3 px-6 py-3.5 rounded-2xl bg-white/10 border border-white/20 text-brand-reward text-lg">
-              <Sparkles size={22} />
-              <span>Código da Sala: {roomId.slice(0, 8).toUpperCase()}</span>
+
+            {/* Right: Big Room QR / Code Card */}
+            <div className="bg-white rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-2xl border-4 border-brand-reward/40">
+              <div className="w-48 h-48 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center p-4 mb-4">
+                <QrCode size={100} className="text-ink-main mb-2" />
+                <span className="text-[10px] font-mono text-ink-muted">http://localhost:3000</span>
+              </div>
+              <span className="text-xs font-bold text-ink-muted uppercase tracking-wider mb-1">
+                Código da Sala
+              </span>
+              <span className="font-mono text-3xl font-black text-brand-primary tracking-wider">
+                {roomId.slice(0, 8).toUpperCase()}
+              </span>
             </div>
           </div>
         ) : isQuiz ? (
