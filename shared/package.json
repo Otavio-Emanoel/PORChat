@@ -1,0 +1,13 @@
+{
+  "name": "@porchat/shared",
+  "version": "1.0.0",
+  "description": "Shared contracts, types and interfaces for PORChat Web and Mobile",
+  "main": "types/index.ts",
+  "types": "types/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
