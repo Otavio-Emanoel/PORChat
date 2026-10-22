@@ -15,6 +15,8 @@ interface WebSocketContextType {
   gameState: GameStateUpdatePayload | null;
   roomId: string;
   nickname: string;
+  serverHost: string;
+  setServerHost: (host: string) => void;
   setRoomId: (id: string) => void;
   setNickname: (name: string) => void;
   sendMessage: (content: string) => void;
@@ -32,6 +34,7 @@ const DEFAULT_ROOM_ID = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roomId, setRoomId] = useState(DEFAULT_ROOM_ID);
   const [nickname, setNickname] = useState('Otavio_Mobile');
+  const [serverHost, setServerHost] = useState('localhost:8080');
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<Array<{ id: string; nickname: string }>>([]);
@@ -43,8 +46,11 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const connect = useCallback(() => {
     if (!roomId) return;
 
-    // Change host IP if running on physical device or simulator
-    const host = '10.0.2.2:8080'; // standard Android emulator loopback or localhost
+    if (socketRef.current) {
+      socketRef.current.close();
+    }
+
+    const host = serverHost.trim() || 'localhost:8080';
     const url = `ws://${host}/ws?room_id=${encodeURI(roomId)}&nickname=${encodeURIComponent(nickname)}&client_type=mobile`;
 
     try {
@@ -59,7 +65,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setIsConnected(false);
         reconnectTimeoutRef.current = setTimeout(() => {
           connect();
-        }, 2000);
+        }, 2500);
       };
 
       ws.onerror = (err) => {
@@ -77,7 +83,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       console.warn('Could not establish socket connection:', e);
     }
-  }, [roomId, nickname]);
+  }, [roomId, nickname, serverHost]);
 
   const handleEnvelope = (envelope: WebSocketEnvelope) => {
     switch (envelope.event) {
@@ -186,6 +192,8 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         gameState,
         roomId,
         nickname,
+        serverHost,
+        setServerHost,
         setRoomId,
         setNickname,
         sendMessage,

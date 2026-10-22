@@ -15,13 +15,21 @@ import { colors } from '../theme/colors';
 import type { ChatMessage } from '../types';
 
 export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenController }) => {
-  const { messages, sendMessage, isConnected, gameState, nickname } = useWebSocketContext();
+  const { messages, sendMessage, isConnected, gameState, nickname, serverHost, setServerHost } = useWebSocketContext();
   const [inputText, setInputText] = useState('');
+  const [showConfig, setShowConfig] = useState(false);
+  const [hostInput, setHostInput] = useState(serverHost);
 
   const handleSend = () => {
     if (!inputText.trim()) return;
     sendMessage(inputText.trim());
     setInputText('');
+  };
+
+  const handleSaveHost = () => {
+    if (!hostInput.trim()) return;
+    setServerHost(hostInput.trim());
+    setShowConfig(false);
   };
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
@@ -58,24 +66,76 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           <Text style={styles.headerTitle}>PORChat</Text>
           <View style={styles.statusRow}>
             <View style={[styles.statusDot, { backgroundColor: isConnected ? colors.brand.mint : colors.brand.action }]} />
-            <Text style={styles.statusText}>{isConnected ? 'Conectado' : 'Reconectando...'}</Text>
+            <Text style={styles.statusText}>
+              {isConnected ? `Conectado (${serverHost})` : 'Reconectando...'}
+            </Text>
           </View>
         </View>
 
-        {isGameActive && (
-          <TouchableOpacity style={styles.controllerButton} onPress={onOpenController}>
-            <Text style={styles.controllerButtonText}>🎮 ABRIR CONTROLE</Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.configButton}
+            onPress={() => setShowConfig(!showConfig)}
+          >
+            <Text style={styles.configButtonText}>⚙️ IP Host</Text>
           </TouchableOpacity>
-        )}
+
+          {isGameActive && (
+            <TouchableOpacity style={styles.controllerButton} onPress={onOpenController}>
+              <Text style={styles.controllerButtonText}>🎮 ABRIR CONTROLE</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
+
+      {/* LAN Host Configuration Drawer */}
+      {showConfig && (
+        <View style={styles.configDrawer}>
+          <Text style={styles.configTitle}>Configurar Servidor (LAN / Wi-Fi)</Text>
+          <Text style={styles.configDesc}>
+            Para testar no celular físico, insira o IP do computador na rede local (ex: 192.168.1.100:8080):
+          </Text>
+
+          <TextInput
+            style={styles.hostTextInput}
+            value={hostInput}
+            onChangeText={setHostInput}
+            placeholder="IP:Porta (ex: 192.168.1.50:8080)"
+            placeholderTextColor={colors.ink.muted}
+            autoCapitalize="none"
+          />
+
+          <View style={styles.presetRow}>
+            <TouchableOpacity
+              style={styles.presetButton}
+              onPress={() => setHostInput('localhost:8080')}
+            >
+              <Text style={styles.presetButtonText}>Localhost</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.presetButton}
+              onPress={() => setHostInput('10.0.2.2:8080')}
+            >
+              <Text style={styles.presetButtonText}>Emulador (10.0.2.2)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.saveHostButton} onPress={handleSaveHost}>
+              <Text style={styles.saveHostButtonText}>Salvar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Active Game Notice Banner */}
       {isGameActive && (
         <TouchableOpacity style={styles.gameBanner} onPress={onOpenController}>
           <Text style={styles.gameBannerTitle}>
-            {gameState.game_type === 'debate' ? '⚖️ Modo Debate em Andamento!' : '⚡ Quiz Ativo!'}
+            {gameState.game_type === 'quiz' ? '⚡ Quiz Relâmpago Ativo!' : '⚖️ Modo Debate em Julgamento!'}
           </Text>
-          <Text style={styles.gameBannerSubtitle}>Toque para votar ou apresentar seu argumento ({gameState.remaining_seconds}s)</Text>
+          <Text style={styles.gameBannerSubtitle}>
+            Toque para abrir a tela de controle do jogo ({gameState.remaining_seconds}s)
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -138,16 +198,89 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
-    fontSize: 12,
+    fontSize: 11,
     color: colors.ink.muted,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  configButton: {
+    backgroundColor: colors.surface.light,
+    borderWidth: 1,
+    borderColor: colors.surface.border,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 12,
+  },
+  configButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.ink.main,
   },
   controllerButton: {
     backgroundColor: colors.brand.action,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderRadius: 12,
   },
   controllerButtonText: {
+    color: colors.surface.white,
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  configDrawer: {
+    backgroundColor: '#EDF2F7',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surface.border,
+    gap: 8,
+  },
+  configTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.ink.main,
+  },
+  configDesc: {
+    fontSize: 11,
+    color: colors.ink.muted,
+    lineHeight: 16,
+  },
+  hostTextInput: {
+    backgroundColor: colors.surface.white,
+    borderWidth: 1,
+    borderColor: colors.surface.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: colors.ink.main,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  presetButton: {
+    backgroundColor: colors.surface.white,
+    borderWidth: 1,
+    borderColor: colors.surface.border,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  presetButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.ink.muted,
+  },
+  saveHostButton: {
+    backgroundColor: colors.brand.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 10,
+    marginLeft: 'auto',
+  },
+  saveHostButtonText: {
     color: colors.surface.white,
     fontWeight: '800',
     fontSize: 12,
