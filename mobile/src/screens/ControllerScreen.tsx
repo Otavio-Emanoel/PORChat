@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,14 +12,31 @@ import {
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
 
+const QUIZ_BUTTON_COLORS = {
+  A: { bg: '#FF6B6B', border: '#D63031' }, // Coral
+  B: { bg: '#48DBFB', border: '#0ABDE3' }, // Ocean
+  C: { bg: '#FECA57', border: '#EE5253' }, // Mustard
+  D: { bg: '#1DD1A1', border: '#10AC84' }, // Emerald
+};
+
 export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { gameState, castVote, sendReaction, submitArgument, nickname } = useWebSocketContext();
+  const { gameState, castVote, sendReaction, submitArgument, submitQuizAnswer, nickname } = useWebSocketContext();
   const [argumentText, setArgumentText] = useState('');
   const [votedSide, setVotedSide] = useState<'side_a' | 'side_b' | null>(null);
+  const [votedQuizChoice, setVotedQuizChoice] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
 
+  const isQuiz = gameState?.game_type === 'quiz';
   const phase = gameState?.phase || 'CHAT';
   const remaining = gameState?.remaining_seconds ?? 0;
   const debate = gameState?.debate_state;
+  const quiz = gameState?.quiz_state;
+
+  // Reset answer when new question arrives
+  useEffect(() => {
+    if (phase === 'QUESTION') {
+      setVotedQuizChoice(null);
+    }
+  }, [quiz?.current_question_index, phase]);
 
   const handleVote = (side: 'side_a' | 'side_b') => {
     setVotedSide(side);
@@ -32,9 +49,17 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
     setArgumentText('');
   };
 
+  const handleQuizAnswer = (choice: 'A' | 'B' | 'C' | 'D') => {
+    if (votedQuizChoice) return; // Only 1 pick per question
+    setVotedQuizChoice(choice);
+    submitQuizAnswer(choice);
+  };
+
   const isDebater =
     debate?.debater_a?.nickname === nickname ||
     debate?.debater_b?.nickname === nickname;
+
+  const myQuizScore = quiz?.leaderboard?.find((entry) => entry.nickname === nickname);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -49,129 +74,213 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Phase & Topic Card */}
+        {/* Phase Badge */}
         <View style={styles.topicCard}>
-          <Text style={styles.phaseBadge}>FASE: {phase}</Text>
-          <Text style={styles.topicText}>"{debate?.topic || 'Abacaxi na pizza é crime ou alta gastronomia?'}"</Text>
+          <Text style={styles.phaseBadge}>
+            {isQuiz ? '⚡ QUIZ RELÂMPAGO' : '⚖️ MODO DEBATE'} • FASE: {phase}
+          </Text>
+          <Text style={styles.topicText}>
+            {isQuiz
+              ? quiz?.current_question?.prompt || 'Aguardando próxima pergunta...'
+              : `"${debate?.topic || 'Abacaxi na pizza é crime ou alta gastronomia?'}"`}
+          </Text>
         </View>
 
-        {/* Dynamic Views per Phase */}
-        {phase === 'LOBBY' && (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>⚖️ Tribunal em Preparação</Text>
-            <Text style={styles.sectionSubtitle}>
-              Prepare-se! Em instantes os debatedores apresentarão suas teses de acusação e defesa.
-            </Text>
-            <View style={styles.matchupRow}>
-              <View style={[styles.playerBadge, { borderColor: colors.brand.action }]}>
-                <Text style={[styles.playerBadgeLabel, { color: colors.brand.action }]}>LADO A</Text>
-                <Text style={styles.playerBadgeName}>{debate?.debater_a?.nickname || 'Defesa A'}</Text>
-              </View>
-              <Text style={styles.vsText}>VS</Text>
-              <View style={[styles.playerBadge, { borderColor: colors.brand.mint }]}>
-                <Text style={[styles.playerBadgeLabel, { color: colors.brand.mint }]}>LADO B</Text>
-                <Text style={styles.playerBadgeName}>{debate?.debater_b?.nickname || 'Defesa B'}</Text>
-              </View>
-            </View>
-          </View>
-        )}
+        {/* ==================================================================== */}
+        {/* ======================== TRIVIA CONTROLLER ========================= */}
+        {/* ==================================================================== */}
+        {isQuiz ? (
+          <View style={styles.quizWrapper}>
+            {phase === 'QUESTION' && (
+              <View style={styles.quizControls}>
+                <Text style={styles.sectionSubtitle}>
+                  Selecione sua resposta o mais rápido possível:
+                </Text>
 
-        {(phase === 'OPENING_ARGUMENTS' || phase === 'REBUTTAL') && (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>
-              {phase === 'OPENING_ARGUMENTS' ? 'Argumentos Iniciais' : 'Fase de Réplica'}
-            </Text>
-            <Text style={styles.sectionSubtitle}>
-              {isDebater
-                ? 'Você é um dos debatedores! Digite sua tese e envie para o palco:'
-                : 'Você está no júri. Acompanhe os argumentos ao vivo e prepare seu voto:'}
-            </Text>
+                {/* 4 Geometric Colored Buttons */}
+                <View style={styles.quizGrid}>
+                  {(['A', 'B', 'C', 'D'] as const).map((opt) => {
+                    const optionText = quiz?.current_question?.options?.[opt] || '';
+                    const isSelected = votedQuizChoice === opt;
+                    const colorScheme = QUIZ_BUTTON_COLORS[opt];
 
-            <TextInput
-              style={styles.textArea}
-              value={argumentText}
-              onChangeText={setArgumentText}
-              placeholder="Digite seu argumento ou ponto de vista aqui..."
-              placeholderTextColor={colors.ink.muted}
-              multiline
-              numberOfLines={4}
-            />
-            <TouchableOpacity style={styles.submitArgButton} onPress={handleSubmitArg}>
-              <Text style={styles.submitArgButtonText}>Enviar Argumento ao Palco</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Voting View (Massive Tactile Buzzer Buttons) */}
-        {phase === 'VOTING' && (
-          <View style={styles.votingContainer}>
-            <Text style={styles.votingTitle}>Qual lado venceu?</Text>
-            <Text style={styles.votingSubtitle}>Toque no cartão para computar seu voto na TV:</Text>
-
-            {/* Side A (Coral) Tactile Button */}
-            <TouchableOpacity
-              activeOpacity={0.75}
-              style={[
-                styles.hugeVoteButton,
-                styles.voteButtonSideA,
-                votedSide === 'side_a' && styles.selectedVoteButton,
-              ]}
-              onPress={() => handleVote('side_a')}
-            >
-              <Text style={styles.hugeVoteButtonLabel}>LADO A (CORAL)</Text>
-              <Text style={styles.hugeVoteButtonName}>
-                {debate?.debater_a?.nickname || 'Defesa A'}
-              </Text>
-              {votedSide === 'side_a' && (
-                <View style={styles.votedBadgeContainer}>
-                  <Text style={styles.votedBadge}>✓ SEU VOTO</Text>
+                    return (
+                      <TouchableOpacity
+                        key={opt}
+                        activeOpacity={0.75}
+                        disabled={votedQuizChoice !== null}
+                        style={[
+                          styles.quizButton,
+                          { backgroundColor: colorScheme.bg, borderBottomColor: colorScheme.border },
+                          isSelected && styles.selectedQuizButton,
+                          votedQuizChoice !== null && !isSelected && styles.dimmedQuizButton,
+                        ]}
+                        onPress={() => handleQuizAnswer(opt)}
+                      >
+                        <Text style={styles.quizOptionLetter}>{opt}</Text>
+                        <Text style={styles.quizOptionText} numberOfLines={2}>
+                          {optionText}
+                        </Text>
+                        {isSelected && <Text style={styles.quizChoiceCheck}>✓ ENVIADO</Text>}
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-              )}
-            </TouchableOpacity>
+              </View>
+            )}
 
-            {/* Side B (Mint) Tactile Button */}
-            <TouchableOpacity
-              activeOpacity={0.75}
-              style={[
-                styles.hugeVoteButton,
-                styles.voteButtonSideB,
-                votedSide === 'side_b' && styles.selectedVoteButton,
-              ]}
-              onPress={() => handleVote('side_b')}
-            >
-              <Text style={[styles.hugeVoteButtonLabel, { color: colors.ink.main }]}>LADO B (MENTA)</Text>
-              <Text style={[styles.hugeVoteButtonName, { color: colors.ink.main }]}>
-                {debate?.debater_b?.nickname || 'Defesa B'}
-              </Text>
-              {votedSide === 'side_b' && (
-                <View style={styles.votedBadgeContainer}>
-                  <Text style={[styles.votedBadge, { color: colors.ink.main }]}>✓ SEU VOTO</Text>
-                </View>
-              )}
-            </TouchableOpacity>
+            {phase === 'REVEAL' && (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>
+                  {votedQuizChoice === quiz?.correct_option ? '🎉 Você Acertou!' : '❌ Resposta Incorreta'}
+                </Text>
+                <Text style={styles.sectionSubtitle}>
+                  A alternativa correta é a letra {quiz?.correct_option}.
+                </Text>
+                {myQuizScore && (
+                  <View style={styles.scoreRow}>
+                    <Text style={styles.scoreText}>Pontos ganhos: +{myQuizScore.round_score} pts</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {(phase === 'LEADERBOARD' || phase === 'FINAL_RESULTS') && (
+              <View style={styles.card}>
+                <Text style={styles.winnerTitle}>
+                  {phase === 'FINAL_RESULTS' ? '🏆 Fim do Quiz!' : '📊 Sua Posição'}
+                </Text>
+                <Text style={styles.sectionSubtitle}>
+                  {myQuizScore
+                    ? `Você está em #${myQuizScore.rank} com ${myQuizScore.total_score} pontos!`
+                    : 'Aguardando atualização das posições...'}
+                </Text>
+              </View>
+            )}
           </View>
-        )}
+        ) : (
+          /* ==================================================================== */
+          /* ======================== DEBATE CONTROLLER ========================= */
+          /* ==================================================================== */
+          <View style={styles.debateWrapper}>
+            {phase === 'LOBBY' && (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>⚖️ Tribunal em Preparação</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Prepare-se! Em instantes os debatedores apresentarão suas teses de acusação e defesa.
+                </Text>
+                <View style={styles.matchupRow}>
+                  <View style={[styles.playerBadge, { borderColor: colors.brand.action }]}>
+                    <Text style={[styles.playerBadgeLabel, { color: colors.brand.action }]}>LADO A</Text>
+                    <Text style={styles.playerBadgeName}>{debate?.debater_a?.nickname || 'Defesa A'}</Text>
+                  </View>
+                  <Text style={styles.vsText}>VS</Text>
+                  <View style={[styles.playerBadge, { borderColor: colors.brand.mint }]}>
+                    <Text style={[styles.playerBadgeLabel, { color: colors.brand.mint }]}>LADO B</Text>
+                    <Text style={styles.playerBadgeName}>{debate?.debater_b?.nickname || 'Defesa B'}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
 
-        {/* Results View */}
-        {phase === 'RESULTS' && (
-          <View style={styles.card}>
-            <Text style={styles.winnerTitle}>🏆 Veredito dos Jurados</Text>
-            <Text style={styles.winnerSubtitle}>
-              {debate?.winner_side === 'side_a'
-                ? 'Lado A conquistou a vitória!'
-                : debate?.winner_side === 'side_b'
-                ? 'Lado B conquistou a vitória!'
-                : 'Empate total no veredito!'}
-            </Text>
-            <View style={styles.scoreRow}>
-              <Text style={[styles.scoreText, { color: colors.brand.action }]}>
-                Lado A: {debate?.votes_count?.side_a ?? 0}
-              </Text>
-              <Text style={styles.scoreTextDivider}>•</Text>
-              <Text style={[styles.scoreText, { color: colors.brand.mint }]}>
-                Lado B: {debate?.votes_count?.side_b ?? 0}
-              </Text>
-            </View>
+            {(phase === 'OPENING_ARGUMENTS' || phase === 'REBUTTAL') && (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>
+                  {phase === 'OPENING_ARGUMENTS' ? 'Argumentos Iniciais' : 'Fase de Réplica'}
+                </Text>
+                <Text style={styles.sectionSubtitle}>
+                  {isDebater
+                    ? 'Você é um dos debatedores! Digite sua tese e envie para o palco:'
+                    : 'Você está no júri. Acompanhe os argumentos ao vivo e prepare seu voto:'}
+                </Text>
+
+                <TextInput
+                  style={styles.textArea}
+                  value={argumentText}
+                  onChangeText={setArgumentText}
+                  placeholder="Digite seu argumento ou ponto de vista aqui..."
+                  placeholderTextColor={colors.ink.muted}
+                  multiline
+                  numberOfLines={4}
+                />
+                <TouchableOpacity style={styles.submitArgButton} onPress={handleSubmitArg}>
+                  <Text style={styles.submitArgButtonText}>Enviar Argumento ao Palco</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Voting View (Massive Tactile Buzzer Buttons) */}
+            {phase === 'VOTING' && (
+              <View style={styles.votingContainer}>
+                <Text style={styles.votingTitle}>Qual lado venceu?</Text>
+                <Text style={styles.votingSubtitle}>Toque no cartão para computar seu voto na TV:</Text>
+
+                {/* Side A (Coral) Tactile Button */}
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  style={[
+                    styles.hugeVoteButton,
+                    styles.voteButtonSideA,
+                    votedSide === 'side_a' && styles.selectedVoteButton,
+                  ]}
+                  onPress={() => handleVote('side_a')}
+                >
+                  <Text style={styles.hugeVoteButtonLabel}>LADO A (CORAL)</Text>
+                  <Text style={styles.hugeVoteButtonName}>
+                    {debate?.debater_a?.nickname || 'Defesa A'}
+                  </Text>
+                  {votedSide === 'side_a' && (
+                    <View style={styles.votedBadgeContainer}>
+                      <Text style={styles.votedBadge}>✓ SEU VOTO</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Side B (Mint) Tactile Button */}
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  style={[
+                    styles.hugeVoteButton,
+                    styles.voteButtonSideB,
+                    votedSide === 'side_b' && styles.selectedVoteButton,
+                  ]}
+                  onPress={() => handleVote('side_b')}
+                >
+                  <Text style={[styles.hugeVoteButtonLabel, { color: colors.ink.main }]}>LADO B (MENTA)</Text>
+                  <Text style={[styles.hugeVoteButtonName, { color: colors.ink.main }]}>
+                    {debate?.debater_b?.nickname || 'Defesa B'}
+                  </Text>
+                  {votedSide === 'side_b' && (
+                    <View style={styles.votedBadgeContainer}>
+                      <Text style={[styles.votedBadge, { color: colors.ink.main }]}>✓ SEU VOTO</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Results View */}
+            {phase === 'RESULTS' && (
+              <View style={styles.card}>
+                <Text style={styles.winnerTitle}>🏆 Veredito dos Jurados</Text>
+                <Text style={styles.winnerSubtitle}>
+                  {debate?.winner_side === 'side_a'
+                    ? 'Lado A conquistou a vitória!'
+                    : debate?.winner_side === 'side_b'
+                    ? 'Lado B conquistou a vitória!'
+                    : 'Empate total no veredito!'}
+                </Text>
+                <View style={styles.scoreRow}>
+                  <Text style={[styles.scoreText, { color: colors.brand.action }]}>
+                    Lado A: {debate?.votes_count?.side_a ?? 0}
+                  </Text>
+                  <Text style={styles.scoreTextDivider}>•</Text>
+                  <Text style={[styles.scoreText, { color: colors.brand.mint }]}>
+                    Lado B: {debate?.votes_count?.side_b ?? 0}
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         )}
 
@@ -279,6 +388,60 @@ const styles = StyleSheet.create({
     color: colors.ink.muted,
     lineHeight: 18,
     marginBottom: 14,
+  },
+  quizWrapper: {
+    gap: 16,
+  },
+  quizControls: {
+    gap: 10,
+  },
+  quizGrid: {
+    gap: 12,
+  },
+  quizButton: {
+    borderRadius: 20,
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 5,
+    elevation: 3,
+  },
+  selectedQuizButton: {
+    borderWidth: 3,
+    borderColor: colors.brand.reward,
+  },
+  dimmedQuizButton: {
+    opacity: 0.45,
+  },
+  quizOptionLetter: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: colors.surface.white,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    textAlign: 'center',
+    lineHeight: 38,
+    marginRight: 12,
+  },
+  quizOptionText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.surface.white,
+  },
+  quizChoiceCheck: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: colors.surface.white,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  debateWrapper: {
+    gap: 16,
   },
   matchupRow: {
     flexDirection: 'row',

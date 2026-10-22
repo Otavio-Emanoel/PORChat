@@ -22,6 +22,7 @@ interface WebSocketContextType {
   castVote: (choice: 'side_a' | 'side_b') => void;
   sendReaction: (emoji: string) => void;
   submitArgument: (argument: string) => void;
+  submitQuizAnswer: (choice: 'A' | 'B' | 'C' | 'D') => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
@@ -169,6 +170,13 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     sendAction('debate:submit_argument', { argument });
   };
 
+  const submitQuizAnswer = (choice: 'A' | 'B' | 'C' | 'D') => {
+    sendAction('quiz:submit_answer', {
+      choice,
+      client_sent_ms: Date.now(),
+    });
+  };
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -185,6 +193,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         castVote,
         sendReaction,
         submitArgument,
+        submitQuizAnswer,
       }}
     >
       {children}
