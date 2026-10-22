@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "double-diamond": {
+      "source": "danicat/skills",
+      "sourceType": "github",
+      "skillPath": "agents/double-diamond/SKILL.md",
+      "computedHash": "04c0e234bb0095d22ad368a96aacc6cf97cb6a8dbb7ad58da8028ab8a53f4685"
+    },
+    "parallel": {
+      "source": "danicat/skills",
+      "sourceType": "github",
+      "skillPath": "agents/parallel/SKILL.md",
+      "computedHash": "e0d2fd85d2c321f6a202e4818816a4151c4cb7b6f60f4faf9302fd75eae2d6b1"
+    },
+    "swarm-coding": {
+      "source": "danicat/skills",
+      "sourceType": "github",
+      "skillPath": "agents/swarm-coding/SKILL.md",
+      "computedHash": "7291e26026ca56495892bd5783b157e1a19c3fe64a7f363d7b50a6ae4bd81adf"
+    },
+    "uno-reverse": {
+      "source": "danicat/skills",
+      "sourceType": "github",
+      "skillPath": "agents/uno-reverse/SKILL.md",
+      "computedHash": "7bfa97bea6f1ebfb264610d976ab3722643998b6bc5864c4dfb3fd6333f30cfe"
+    }
+  }
+}
