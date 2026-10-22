@@ -23,7 +23,7 @@ func main() {
 	hub := ws.NewHub(roomStore)
 	go hub.Run()
 
-	gameManager := game.NewManager(hub)
+	gameManager := game.NewManager(hub, roomStore)
 	hub.SetEngineGetter(func(roomID string) ws.GameEngine {
 		return gameManager.GetEngine(roomID)
 	})

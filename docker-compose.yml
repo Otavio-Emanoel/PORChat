@@ -19,6 +19,22 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: porchat-api
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://porchat:porchat_secret@postgres:5432/porchat?sslmode=disable"
+      JWT_SECRET: "porchat-super-secure-production-secret"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
     driver: local

@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,6 +153,16 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 			Content string `json:"content"`
 		}
 		if err := json.Unmarshal(env.Payload, &p); err == nil && p.Content != "" {
+			trimmed := strings.TrimSpace(p.Content)
+			if trimmed == "/bots" {
+				if h.engineGetter != nil {
+					if eng := h.engineGetter(c.RoomID); eng != nil {
+						eng.HandleAction(c, &Envelope{Event: "bots:toggle", RoomID: c.RoomID})
+					}
+				}
+				return
+			}
+
 			chatMsg := &chat.ChatMessage{
 				ID:        uuid.New().String(),
 				RoomID:    c.RoomID,
@@ -169,7 +180,7 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 		}
 
 	case "game:start", "debate:submit_argument", "debate:cast_vote", "debate:reaction",
-		"quiz:submit_answer":
+		"quiz:submit_answer", "bots:toggle", "game:bots_spawn":
 		if h.engineGetter != nil {
 			if eng := h.engineGetter(c.RoomID); eng != nil {
 				eng.HandleAction(c, env)
