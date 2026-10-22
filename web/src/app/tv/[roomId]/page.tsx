@@ -2,70 +2,97 @@
 
 import React, { useState, useEffect } from 'react';
 import { useWebSocket } from '@/lib/useWebSocket';
-import { Flame, Sparkles, Trophy, Users, Swords } from 'lucide-react';
+import { Flame, Sparkles, Trophy, Users, Swords, Crown, HeartHandshake } from 'lucide-react';
+
+interface Particle {
+  id: number;
+  emoji: string;
+  left: number;
+  size: number;
+}
 
 export default function TVModePage({ params }: { params: { roomId: string } }) {
   const { roomId } = params;
-  const [reactions, setReactions] = useState<Array<{ id: number; emoji: string; left: number }>>([]);
+  const [particles, setParticles] = useState<Particle[]>([]);
 
-  const { isConnected, onlineUsers, gameState } = useWebSocket({
+  const { onlineUsers, gameState } = useWebSocket({
     roomId,
-    nickname: 'TV_Display',
+    nickname: 'TV_Stage_Display',
     clientType: 'tv',
   });
 
   const debateState = gameState?.debate_state;
-  const isDebate = gameState?.game_type === 'debate';
   const phase = gameState?.phase || 'CHAT';
   const remaining = gameState?.remaining_seconds ?? 0;
+  const sideAVotes = debateState?.votes_count?.side_a ?? 0;
+  const sideBVotes = debateState?.votes_count?.side_b ?? 0;
+  const totalVotes = sideAVotes + sideBVotes;
+  const sideAPercent = totalVotes > 0 ? Math.round((sideAVotes / totalVotes) * 100) : 50;
+  const sideBPercent = totalVotes > 0 ? 100 - sideAPercent : 50;
 
-  // Add floating reaction particles on state reaction
-  const triggerReaction = (emoji: string) => {
-    const id = Date.now() + Math.random();
-    const left = Math.floor(Math.random() * 80) + 10; // 10% to 90% width
-    setReactions((prev) => [...prev, { id, emoji, left }]);
-    setTimeout(() => {
-      setReactions((prev) => prev.filter((r) => r.id !== id));
-    }, 3000);
-  };
+  // Listen to incoming emoji reactions and spawn floating particles
+  useEffect(() => {
+    const handleReaction = (emoji: string) => {
+      const id = Date.now() + Math.random();
+      const left = Math.floor(Math.random() * 85) + 5;
+      const size = Math.floor(Math.random() * 24) + 36; // 36px to 60px
+      setParticles((prev) => [...prev.slice(-25), { id, emoji, left, size }]);
+      setTimeout(() => {
+        setParticles((prev) => prev.filter((p) => p.id !== id));
+      }, 3500);
+    };
+
+    // Auto generate celebratory particles during RESULTS
+    if (phase === 'RESULTS') {
+      const interval = setInterval(() => {
+        handleReaction('🎉');
+        handleReaction('👑');
+        handleReaction('⭐');
+      }, 400);
+      return () => clearInterval(interval);
+    }
+  }, [phase]);
 
   return (
-    <div className="min-h-screen bg-surface-tv text-white flex flex-col justify-between p-8 md:p-12 font-heading overflow-hidden relative select-none">
-      {/* Floating Reactions Layer */}
+    <div className="min-h-screen bg-surface-tv text-white flex flex-col justify-between p-6 md:p-12 font-heading overflow-hidden relative select-none">
+      {/* Floating Reaction Particles */}
       <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
-        {reactions.map((r) => (
+        {particles.map((p) => (
           <div
-            key={r.id}
-            className="absolute bottom-10 text-5xl animate-bounce"
-            style={{ left: `${r.left}%`, transition: 'all 3s linear', transform: 'translateY(-120vh)' }}
+            key={p.id}
+            className="absolute bottom-6 animate-float-up transition-transform ease-out"
+            style={{
+              left: `${p.left}%`,
+              fontSize: `${p.size}px`,
+              animation: 'floatUp 3.2s cubic-bezier(0.1, 0.8, 0.3, 1) forwards',
+            }}
           >
-            {r.emoji}
+            {p.emoji}
           </div>
         ))}
       </div>
 
-      {/* TV Header Bar */}
-      <header className="flex items-center justify-between border-b border-white/10 pb-6">
+      {/* Top Header Bar */}
+      <header className="flex items-center justify-between border-b border-white/10 pb-5 z-10">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-3xl bg-brand-primary flex items-center justify-center text-white text-3xl font-black shadow-lg shadow-brand-primary/30">
+          <div className="w-14 h-14 rounded-3xl bg-brand-primary flex items-center justify-center text-white text-3xl font-black shadow-xl shadow-brand-primary/40">
             P
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tight flex items-center gap-2">
-              <span>PORChat</span>
-              <span className="text-sm font-mono px-3 py-1 bg-brand-reward/20 text-brand-reward rounded-full border border-brand-reward/30">
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
+              <span>PORChat Arena</span>
+              <span className="text-xs font-mono px-3 py-1 bg-brand-reward/20 text-brand-reward rounded-full border border-brand-reward/30">
                 TV MODE
               </span>
             </h1>
-            <p className="text-xs text-white/50 font-body">Conecte seu celular para jogar e votar</p>
+            <p className="text-xs text-white/50 font-body">Segundo ecrã sincronizado para auditório e plateia</p>
           </div>
         </div>
 
-        {/* Status / Room Info */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/10 text-sm">
             <Users size={18} className="text-brand-mint" />
-            <span className="font-bold">{onlineUsers.length} Jogadores</span>
+            <span className="font-bold">{onlineUsers.length} Participantes</span>
           </div>
           <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-brand-mint/15 text-brand-mint text-sm font-bold border border-brand-mint/20">
             <span className="w-2.5 h-2.5 rounded-full bg-brand-mint animate-ping" />
@@ -74,93 +101,167 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
         </div>
       </header>
 
-      {/* Main Stage Arena */}
-      <main className="flex-1 flex flex-col items-center justify-center my-8 text-center">
+      {/* Main TV Stage Area */}
+      <main className="flex-1 flex flex-col items-center justify-center my-6 z-10">
         {phase === 'CHAT' ? (
-          <div className="max-w-2xl bg-white/5 border border-white/10 rounded-3xl p-12 backdrop-blur-md shadow-2xl">
-            <div className="w-20 h-20 rounded-3xl bg-brand-primary/20 text-brand-primary mx-auto flex items-center justify-center mb-6">
-              <Swords size={40} className="text-brand-reward" />
+          <div className="max-w-2xl bg-white/5 border border-white/10 rounded-3xl p-12 backdrop-blur-md shadow-2xl text-center">
+            <div className="w-24 h-24 rounded-3xl bg-brand-primary/20 text-brand-primary mx-auto flex items-center justify-center mb-6">
+              <Swords size={48} className="text-brand-reward animate-pulse" />
             </div>
-            <h2 className="text-4xl font-extrabold mb-3">Aguardando Início da Partida</h2>
+            <h2 className="text-4xl md:text-5xl font-black mb-4">Aguardando Início da Partida</h2>
             <p className="text-white/60 text-lg font-body max-w-md mx-auto mb-8">
-              Inicie um **Modo Debate** ou **Quiz** pelo chat no computador ou celular para ver o palco ao vivo aqui!
+              Inicie o **Modo Debate** ou **Quiz** pelo chat no celular ou computador para transmitir para esta tela!
             </p>
-            <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/10 border border-white/20 text-brand-reward text-base">
-              <Sparkles size={20} />
-              <span>Código da Sala: {roomId.slice(0, 8)}</span>
+            <div className="inline-flex items-center gap-3 px-6 py-3.5 rounded-2xl bg-white/10 border border-white/20 text-brand-reward text-lg">
+              <Sparkles size={22} />
+              <span>Código da Sala: {roomId.slice(0, 8).toUpperCase()}</span>
             </div>
           </div>
         ) : (
           <div className="w-full max-w-6xl flex flex-col items-center">
-            {/* Countdown Clock */}
-            <div className="mb-6 flex flex-col items-center">
-              <span className="text-xs font-mono uppercase tracking-widest text-white/50 mb-1">
-                Tempo Restante
-              </span>
-              <div className="text-7xl md:text-8xl font-black font-mono text-brand-reward tracking-tighter drop-shadow-[0_0_35px_rgba(253,203,110,0.5)]">
-                {remaining}s
+            {/* Clock & Phase Banner */}
+            <div className="flex flex-col items-center mb-6">
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/15 text-brand-reward text-sm font-bold uppercase tracking-wider mb-2">
+                <span>FASE: {phase}</span>
               </div>
-              <div className="text-sm font-bold uppercase tracking-wider px-4 py-1 rounded-full bg-white/10 mt-2 text-white/80">
-                Fase: {phase}
+              <div className="text-7xl md:text-9xl font-black font-mono text-brand-reward tracking-tighter drop-shadow-[0_0_40px_rgba(253,203,110,0.6)]">
+                {remaining}s
               </div>
             </div>
 
-            {/* Topic Banner */}
-            <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 mb-8 backdrop-blur-md shadow-xl">
-              <span className="text-xs font-mono uppercase text-brand-reward block mb-1">Tema em Julgamento</span>
-              <h2 className="text-2xl md:text-3xl font-extrabold leading-snug">
+            {/* Topic Card */}
+            <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 mb-8 backdrop-blur-md shadow-2xl text-center">
+              <span className="text-xs font-mono uppercase text-brand-reward tracking-widest block mb-1">
+                ⚖️ TEMA DO TRIBUNAL
+              </span>
+              <h2 className="text-2xl md:text-4xl font-black leading-snug">
                 "{debateState?.topic || 'Abacaxi na pizza é crime ou alta gastronomia?'}"
               </h2>
             </div>
 
-            {/* Debaters Cards (Side A vs Side B) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
-              {/* Side A (Coral) */}
-              <div className="bg-gradient-to-b from-brand-action/20 to-brand-action/5 border-2 border-brand-action/40 rounded-3xl p-8 flex flex-col justify-between text-left shadow-2xl relative overflow-hidden">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="px-3 py-1 rounded-xl bg-brand-action text-white text-xs font-bold uppercase tracking-wider">
-                    Lado A
-                  </span>
-                  <span className="font-mono text-2xl font-black text-brand-action">
-                    {debateState?.votes_count?.side_a ?? 0} Votos
-                  </span>
+            {/* Debaters Cards or Results Celebration */}
+            {phase === 'RESULTS' ? (
+              <div className="w-full max-w-3xl bg-gradient-to-b from-brand-reward/20 to-brand-reward/5 border-2 border-brand-reward/50 rounded-3xl p-10 backdrop-blur-lg shadow-2xl text-center">
+                <div className="w-24 h-24 rounded-full bg-brand-reward/20 mx-auto flex items-center justify-center mb-4">
+                  <Crown size={52} className="text-brand-reward" />
                 </div>
-                <h3 className="text-2xl font-bold mb-4 text-white">
-                  {debateState?.debater_a?.nickname || 'Defensor A'}
+                <h3 className="text-4xl md:text-5xl font-black text-brand-reward mb-2">
+                  {debateState?.winner_side === 'side_a'
+                    ? '🎉 LADO A É O VENCEDOR!'
+                    : debateState?.winner_side === 'side_b'
+                    ? '🎉 LADO B É O VENCEDOR!'
+                    : '🤝 EMPATE HISTÓRICO!'}
                 </h3>
-                <div className="bg-black/30 rounded-2xl p-4 font-body text-sm text-white/90 min-h-[90px] flex items-center">
-                  <p>{debateState?.debater_a?.argument || 'Aguardando argumento...'}</p>
+                <p className="text-white/80 font-body text-lg mb-6">
+                  {debateState?.winner_side === 'side_a'
+                    ? `${debateState.debater_a.nickname} convenceu a maioria dos jurados!`
+                    : debateState?.winner_side === 'side_b'
+                    ? `${debateState.debater_b.nickname} convenceu a maioria dos jurados!`
+                    : 'O júri se dividiu igualmente entre os dois argumentos!'}
+                </p>
+                <div className="flex justify-center items-center gap-8 text-2xl font-mono font-bold">
+                  <span className="text-brand-action">Lado A: {sideAVotes} votos</span>
+                  <span className="text-white/30">•</span>
+                  <span className="text-brand-mint">Lado B: {sideBVotes} votos</span>
                 </div>
               </div>
+            ) : (
+              <div className="w-full space-y-6">
+                {/* Realtime Voting Split Bar */}
+                {phase === 'VOTING' && (
+                  <div className="w-full space-y-2">
+                    <div className="flex justify-between font-mono font-bold text-sm px-1">
+                      <span className="text-brand-action">Lado A ({sideAPercent}%)</span>
+                      <span className="text-white/60">{totalVotes} votos totais</span>
+                      <span className="text-brand-mint">Lado B ({sideBPercent}%)</span>
+                    </div>
+                    <div className="w-full h-5 rounded-full overflow-hidden flex bg-white/10 p-0.5 border border-white/10 shadow-inner">
+                      <div
+                        className="bg-brand-action h-full transition-all duration-300 rounded-l-full"
+                        style={{ width: `${sideAPercent}%` }}
+                      />
+                      <div
+                        className="bg-brand-mint h-full transition-all duration-300 rounded-r-full"
+                        style={{ width: `${sideBPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
 
-              {/* Side B (Mint) */}
-              <div className="bg-gradient-to-b from-brand-mint/20 to-brand-mint/5 border-2 border-brand-mint/40 rounded-3xl p-8 flex flex-col justify-between text-left shadow-2xl relative overflow-hidden">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="px-3 py-1 rounded-xl bg-brand-mint text-ink-main text-xs font-bold uppercase tracking-wider">
-                    Lado B
-                  </span>
-                  <span className="font-mono text-2xl font-black text-brand-mint">
-                    {debateState?.votes_count?.side_b ?? 0} Votos
-                  </span>
-                </div>
-                <h3 className="text-2xl font-bold mb-4 text-white">
-                  {debateState?.debater_b?.nickname || 'Defensor B'}
-                </h3>
-                <div className="bg-black/30 rounded-2xl p-4 font-body text-sm text-white/90 min-h-[90px] flex items-center">
-                  <p>{debateState?.debater_b?.argument || 'Aguardando argumento...'}</p>
+                {/* Debater A & B Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
+                  {/* Side A Card (Coral) */}
+                  <div
+                    className={`rounded-3xl p-8 flex flex-col justify-between text-left shadow-2xl relative overflow-hidden transition-all duration-300 ${
+                      phase === 'OPENING_ARGUMENTS'
+                        ? 'bg-brand-action/25 border-4 border-brand-action shadow-brand-action/30'
+                        : 'bg-brand-action/10 border-2 border-brand-action/30'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="px-3.5 py-1.5 rounded-xl bg-brand-action text-white text-xs font-black uppercase tracking-wider shadow-sm">
+                          LADO A
+                        </span>
+                        <span className="font-mono text-2xl font-black text-brand-action">
+                          {sideAVotes} {sideAVotes === 1 ? 'Voto' : 'Votos'}
+                        </span>
+                      </div>
+                      <h3 className="text-2xl md:text-3xl font-black text-white mb-4">
+                        {debateState?.debater_a?.nickname || 'Defensor A'}
+                      </h3>
+                    </div>
+                    <div className="bg-black/40 rounded-2xl p-5 font-body text-base text-white/90 min-h-[120px] flex items-center border border-white/5">
+                      <p className="leading-relaxed italic">
+                        {debateState?.debater_a?.argument
+                          ? `"${debateState.debater_a.argument}"`
+                          : 'Aguardando o envio da tese de defesa...'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Side B Card (Mint) */}
+                  <div
+                    className={`rounded-3xl p-8 flex flex-col justify-between text-left shadow-2xl relative overflow-hidden transition-all duration-300 ${
+                      phase === 'REBUTTAL'
+                        ? 'bg-brand-mint/25 border-4 border-brand-mint shadow-brand-mint/30'
+                        : 'bg-brand-mint/10 border-2 border-brand-mint/30'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="px-3.5 py-1.5 rounded-xl bg-brand-mint text-ink-main text-xs font-black uppercase tracking-wider shadow-sm">
+                          LADO B
+                        </span>
+                        <span className="font-mono text-2xl font-black text-brand-mint">
+                          {sideBVotes} {sideBVotes === 1 ? 'Voto' : 'Votos'}
+                        </span>
+                      </div>
+                      <h3 className="text-2xl md:text-3xl font-black text-white mb-4">
+                        {debateState?.debater_b?.nickname || 'Defensor B'}
+                      </h3>
+                    </div>
+                    <div className="bg-black/40 rounded-2xl p-5 font-body text-base text-white/90 min-h-[120px] flex items-center border border-white/5">
+                      <p className="leading-relaxed italic">
+                        {debateState?.debater_b?.argument
+                          ? `"${debateState.debater_b.argument}"`
+                          : 'Aguardando o envio da tese de defesa...'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </main>
 
-      {/* TV Bottom Footer */}
-      <footer className="border-t border-white/10 pt-4 flex items-center justify-between text-xs text-white/40 font-body">
+      {/* Footer Info */}
+      <footer className="border-t border-white/10 pt-4 flex items-center justify-between text-xs text-white/50 font-body z-10">
         <p>PORChat Stage Engine v1.0 • Otimizado para Projetores & TVs 4K</p>
-        <p className="flex items-center gap-1">
-          <Flame size={14} className="text-brand-action" />
-          <span>Audience Reactions Ativas</span>
+        <p className="flex items-center gap-1.5 font-semibold text-brand-reward">
+          <Flame size={16} className="text-brand-action" />
+          <span>Plateia Interativa: Use o celular para votar e reagir!</span>
         </p>
       </footer>
     </div>
