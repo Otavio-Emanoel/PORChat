@@ -152,3 +152,14 @@ colors: {
 - **React Native (Mobile):**
   - Prioritize low-latency touch feedback (`Pressable` with haptic feedback when available) for game controller screens.
   - Keep WebSocket connection state global (via Context or Zustand) so switching between the Chat screen and the Game Controller screen never drops the socket connection.
+
+---
+
+## 7. Git & Commit Guidelines (MANDATORY)
+
+- **Language:** All commit messages MUST be written in **English** using imperative Conventional Commits syntax (`feat:`, `fix:`, `refactor:`, `style:`, `docs:`, `chore:`).
+- **NO Co-Authored-By:** NEVER append `Co-authored-by:` or any assistant/bot attribution lines to commit messages. Commits must be clean.
+- **Granular & Atomic Commits:** NEVER bundle multi-system or disparate changes into single mega-commits.
+  - Split backend (`api`, `ws`, `game`) and frontend (`web`, `tv`, `mobile`, `controller`) changes into separate commits.
+  - Split multiple features, fixes, or refactors into distinct commits (e.g. `feat(api): implement room FSM`, then `feat(web): add TV stage layout`, then `feat(mobile): add voting buzzer`).
+
