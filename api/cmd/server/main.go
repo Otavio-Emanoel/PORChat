@@ -51,12 +51,13 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok","app":"PORChat API"}`))
 	})
 
-	// Auth routes
+	// Auth & Users routes
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/register", authHandler.Register)
 		r.Post("/login", authHandler.Login)
 		r.Get("/me", authHandler.Me)
 	})
+	r.Get("/api/users", authHandler.ListUsers)
 
 	// Rooms & Chat routes
 	r.Route("/api/rooms", func(r chi.Router) {

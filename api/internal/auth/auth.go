@@ -149,12 +149,28 @@ func (s *UserStore) GetByID(id string) (*User, error) {
 	return u, nil
 }
 
+func (s *UserStore) ListUsers() []*User {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	list := make([]*User, 0, len(s.byID))
+	for _, u := range s.byID {
+		list = append(list, u)
+	}
+	return list
+}
+
 type AuthHandler struct {
 	Store *UserStore
 }
 
 func NewAuthHandler(store *UserStore) *AuthHandler {
 	return &AuthHandler{Store: store}
+}
+
+func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	users := h.Store.ListUsers()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(users)
 }
 
 type RegisterReq struct {
