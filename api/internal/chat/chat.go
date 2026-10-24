@@ -2,7 +2,10 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
+	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,6 +104,56 @@ func (s *RoomStore) GetRoom(id string) (*Room, bool) {
 	return r, ok
 }
 
+func (s *RoomStore) GetRoomByCode(code string) (*Room, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	codeClean := strings.ToUpper(strings.TrimSpace(code))
+	for _, r := range s.rooms {
+		if strings.ToUpper(strings.TrimSpace(r.Code)) == codeClean {
+			return r, true
+		}
+	}
+	return nil, false
+}
+
+func (s *RoomStore) CreateRoom(name, code string, isGroup bool, createdBy string) *Room {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cleanCode := strings.ToUpper(strings.TrimSpace(code))
+	if cleanCode == "" {
+		cleanCode = fmt.Sprintf("POR-%04d", rand.Intn(9000)+1000)
+	}
+
+	cleanName := strings.TrimSpace(name)
+	if cleanName == "" {
+		cleanName = "Sala " + cleanCode
+	}
+
+	room := &Room{
+		ID:        uuid.New().String(),
+		Name:      cleanName,
+		Code:      cleanCode,
+		IsGroup:   isGroup,
+		CreatedBy: createdBy,
+		CreatedAt: time.Now(),
+	}
+
+	s.rooms[room.ID] = room
+	s.messages[room.ID] = []*ChatMessage{
+		{
+			ID:        uuid.New().String(),
+			RoomID:    room.ID,
+			UserID:    "system",
+			Nickname:  "PORBot",
+			Content:   "Sala criada com sucesso! Convide amigos usando o código " + cleanCode + ".",
+			Type:      "system",
+			CreatedAt: time.Now(),
+		},
+	}
+	return room
+}
+
 func (s *RoomStore) AddMessage(msg *ChatMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,6 +192,36 @@ func (h *ChatHandler) GetRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(room)
+}
+
+func (h *ChatHandler) GetRoomByCode(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	room, ok := h.Store.GetRoomByCode(code)
+	if !ok {
+		http.Error(w, `{"error":"room not found with provided code"}`, http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(room)
+}
+
+type CreateRoomReq struct {
+	Name      string `json:"name"`
+	Code      string `json:"code,omitempty"`
+	CreatedBy string `json:"created_by,omitempty"`
+}
+
+func (h *ChatHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
+	var req CreateRoomReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		http.Error(w, `{"error":"invalid payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	room := h.Store.CreateRoom(req.Name, req.Code, true, req.CreatedBy)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(room)
 }
 

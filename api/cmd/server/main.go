@@ -61,6 +61,8 @@ func main() {
 	// Rooms & Chat routes
 	r.Route("/api/rooms", func(r chi.Router) {
 		r.Get("/", chatHandler.ListRooms)
+		r.Post("/", chatHandler.CreateRoom)
+		r.Get("/code/{code}", chatHandler.GetRoomByCode)
 		r.Get("/{id}", chatHandler.GetRoom)
 		r.Get("/{id}/messages", chatHandler.GetMessages)
 	})
