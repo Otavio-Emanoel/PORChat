@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -23,12 +24,24 @@ type Client struct {
 	Nickname   string
 	RoomID     string
 	ClientType string // "web", "mobile", "tv"
+	closed     bool
+	closeMu    sync.Mutex
+}
+
+func (c *Client) Close() {
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if !c.closed {
+		c.closed = true
+		close(c.Send)
+		_ = c.Conn.Close()
+	}
 }
 
 func (c *Client) ReadPump() {
 	defer func() {
 		c.Hub.Unregister <- c
-		c.Conn.Close()
+		c.Close()
 	}()
 
 	c.Conn.SetReadLimit(maxMessageSize)
@@ -69,7 +82,7 @@ func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.Conn.Close()
+		c.Close()
 	}()
 
 	for {

@@ -76,15 +76,28 @@ func (h *Hub) handleRegister(c *Client) {
 	if _, ok := h.rooms[c.RoomID]; !ok {
 		h.rooms[c.RoomID] = make(map[*Client]bool)
 	}
+
+	// Purge stale ghost connections for the same user and client_type in this room
+	for cl := range h.rooms[c.RoomID] {
+		if cl != c && cl.UserID == c.UserID && cl.ClientType == c.ClientType {
+			delete(h.rooms[c.RoomID], cl)
+			cl.Close()
+		}
+	}
+
 	h.rooms[c.RoomID][c] = true
 
 	onlineList := make([]OnlineUser, 0, len(h.rooms[c.RoomID]))
+	seen := make(map[string]bool)
 	for cl := range h.rooms[c.RoomID] {
-		onlineList = append(onlineList, OnlineUser{
-			ID:         cl.UserID,
-			Nickname:   cl.Nickname,
-			ClientType: cl.ClientType,
-		})
+		if !seen[cl.UserID] {
+			seen[cl.UserID] = true
+			onlineList = append(onlineList, OnlineUser{
+				ID:         cl.UserID,
+				Nickname:   cl.Nickname,
+				ClientType: cl.ClientType,
+			})
+		}
 	}
 
 	var activeGame interface{}
@@ -125,7 +138,7 @@ func (h *Hub) handleUnregister(c *Client) {
 	if clients, ok := h.rooms[c.RoomID]; ok {
 		if _, exists := clients[c]; exists {
 			delete(clients, c)
-			close(c.Send)
+			c.Close()
 			if len(clients) == 0 {
 				delete(h.rooms, c.RoomID)
 			}
