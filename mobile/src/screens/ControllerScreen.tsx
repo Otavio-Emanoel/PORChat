@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   SafeAreaView,
   ScrollView,
   Platform,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
@@ -17,6 +19,46 @@ const QUIZ_BUTTON_COLORS = {
   B: { bg: '#48DBFB', border: '#0ABDE3' }, // Ocean
   C: { bg: '#FECA57', border: '#EE5253' }, // Mustard
   D: { bg: '#1DD1A1', border: '#10AC84' }, // Emerald
+};
+
+const TactileCard: React.FC<{
+  onPress: () => void;
+  style?: any;
+  disabled?: boolean;
+  children: React.ReactNode;
+}> = ({ onPress, style, disabled, children }) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.93,
+      useNativeDriver: true,
+      friction: 4,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 3,
+      tension: 40,
+    }).start();
+  };
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      disabled={disabled}
+    >
+      <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, style]}>
+        {children}
+      </Animated.View>
+    </TouchableOpacity>
+  );
 };
 
 export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -105,9 +147,8 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                     const colorScheme = QUIZ_BUTTON_COLORS[opt];
 
                     return (
-                      <TouchableOpacity
+                      <TactileCard
                         key={opt}
-                        activeOpacity={0.75}
                         disabled={votedQuizChoice !== null}
                         style={[
                           styles.quizButton,
@@ -122,7 +163,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                           {optionText}
                         </Text>
                         {isSelected && <Text style={styles.quizChoiceCheck}>✓ ENVIADO</Text>}
-                      </TouchableOpacity>
+                      </TactileCard>
                     );
                   })}
                 </View>
@@ -216,8 +257,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                 <Text style={styles.votingSubtitle}>Toque no cartão para computar seu voto na TV:</Text>
 
                 {/* Side A (Coral) Tactile Button */}
-                <TouchableOpacity
-                  activeOpacity={0.75}
+                <TactileCard
                   style={[
                     styles.hugeVoteButton,
                     styles.voteButtonSideA,
@@ -234,11 +274,10 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                       <Text style={styles.votedBadge}>✓ SEU VOTO</Text>
                     </View>
                   )}
-                </TouchableOpacity>
+                </TactileCard>
 
                 {/* Side B (Mint) Tactile Button */}
-                <TouchableOpacity
-                  activeOpacity={0.75}
+                <TactileCard
                   style={[
                     styles.hugeVoteButton,
                     styles.voteButtonSideB,
@@ -255,7 +294,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                       <Text style={[styles.votedBadge, { color: colors.ink.main }]}>✓ SEU VOTO</Text>
                     </View>
                   )}
-                </TouchableOpacity>
+                </TactileCard>
               </View>
             )}
 
