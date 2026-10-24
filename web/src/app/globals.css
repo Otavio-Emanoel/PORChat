@@ -20,20 +20,118 @@ h1, h2, h3, h4, .font-heading {
   font-family: var(--font-fredoka);
 }
 
+/* ==========================================================================
+   Tactile & Kinetic Animations (Party Vibe)
+   ========================================================================== */
+
 /* Tactile 3D Button Utility */
 .tactile-btn {
-  transition: all 0.1s ease-in-out;
-  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.12);
+  transition: all 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15);
 }
 
 .tactile-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.18);
 }
 
 .tactile-btn:active {
   transform: translateY(3px);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Floating Emoji Keyframes */
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) scale(0.4) rotate(-5deg);
+    opacity: 0;
+  }
+  15% {
+    transform: translateY(-40px) scale(1.25) rotate(8deg);
+    opacity: 1;
+  }
+  40% {
+    transform: translateY(-220px) scale(1.1) rotate(-12deg);
+    opacity: 0.95;
+  }
+  70% {
+    transform: translateY(-500px) scale(1) rotate(6deg);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-850px) scale(0.8) rotate(-15deg);
+    opacity: 0;
+  }
+}
+
+.animate-float-up {
+  animation: floatUp 3.2s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+/* Bouncy Pop In */
+@keyframes popIn {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-pop-in {
+  animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* Pulsing Glow */
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(108, 92, 231, 0.3);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(108, 92, 231, 0.65);
+    transform: scale(1.02);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2.5s infinite ease-in-out;
+}
+
+/* Coral Pulse for Alerts / Debate Timer */
+@keyframes coralPulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(255, 118, 117, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(255, 118, 117, 0.7);
+  }
+}
+
+.animate-coral-pulse {
+  animation: coralPulse 1.8s infinite ease-in-out;
+}
+
+/* Smooth Winner Podium Shimmer */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite linear;
 }
 
 /* Custom friendly scrollbar */
