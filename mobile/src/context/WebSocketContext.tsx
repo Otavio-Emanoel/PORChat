@@ -151,12 +151,36 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   useEffect(() => {
+    // Reset and fetch message history for the selected room
+    let isCancelled = false;
+    const fetchHistory = async () => {
+      try {
+        const host = serverHost.trim() || 'localhost:8081';
+        const res = await fetch(`http://${host}/api/rooms/${roomId}/messages`);
+        if (res.ok) {
+          const history = await res.json();
+          if (!isCancelled && Array.isArray(history)) {
+            setMessages(history);
+            return;
+          }
+        }
+      } catch (e) {
+        // Fallback
+      }
+      if (!isCancelled) {
+        setMessages([]);
+      }
+    };
+
+    fetchHistory();
     connect();
+
     return () => {
+      isCancelled = true;
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (socketRef.current) socketRef.current.close();
     };
-  }, [connect]);
+  }, [connect, roomId, serverHost]);
 
   const sendAction = (event: string, payload: unknown) => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
