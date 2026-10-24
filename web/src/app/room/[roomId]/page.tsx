@@ -44,7 +44,7 @@ export default function RoomPage() {
   const roomId = params.roomId as string;
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [nickname, setNickname] = useState('Visitante');
+  const [nickname, setNickname] = useState('');
   const [inputText, setInputText] = useState('');
   const [roomInfo, setRoomInfo] = useState<RoomData | null>(null);
   const [allRooms, setAllRooms] = useState<RoomData[]>([]);
@@ -62,7 +62,11 @@ export default function RoomPage() {
       setCurrentUser(user);
       setNickname(user.nickname);
     } else {
-      const guestNick = 'Visitante_' + Math.floor(100 + Math.random() * 900);
+      let guestNick = sessionStorage.getItem('porchat_guest_nick');
+      if (!guestNick) {
+        guestNick = 'Visitante_' + Math.floor(100 + Math.random() * 900);
+        sessionStorage.setItem('porchat_guest_nick', guestNick);
+      }
       setNickname(guestNick);
     }
   }, []);

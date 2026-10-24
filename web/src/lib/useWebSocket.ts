@@ -31,51 +31,29 @@ export function useWebSocket({
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isClosingExplicitlyRef = useRef<boolean>(false);
 
-  const connect = useCallback(() => {
+  // Fetch message history whenever roomId changes
+  useEffect(() => {
     if (!roomId) return;
+    let isCancelled = false;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = process.env.NEXT_PUBLIC_WS_HOST || 'localhost:8080';
-    let url = `${protocol}//${host}/ws?room_id=${encodeURI(roomId)}&client_type=${clientType}`;
-    
-    if (token) {
-      url += `&token=${encodeURIComponent(token)}`;
-    } else {
-      url += `&nickname=${encodeURIComponent(nickname)}`;
-    }
+    fetch(`${apiBase}/api/rooms/${roomId}/messages`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((history: ChatMessage[]) => {
+        if (!isCancelled && Array.isArray(history)) {
+          setMessages(history);
+        }
+      })
+      .catch(() => {});
 
-    const ws = new WebSocket(url);
-    socketRef.current = ws;
-
-    ws.onopen = () => {
-      setIsConnected(true);
+    return () => {
+      isCancelled = true;
     };
+  }, [roomId]);
 
-    ws.onclose = () => {
-      setIsConnected(false);
-      // Auto reconnect after 2 seconds
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, 2000);
-    };
-
-    ws.onerror = (err) => {
-      console.warn('WebSocket encountered error:', err);
-      ws.close();
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const envelope: WebSocketEnvelope = JSON.parse(event.data);
-        handleEnvelope(envelope);
-      } catch (e) {
-        console.error('Failed to parse WS payload:', e);
-      }
-    };
-  }, [roomId, nickname, token, clientType]);
-
-  const handleEnvelope = (envelope: WebSocketEnvelope) => {
+  const handleEnvelope = useCallback((envelope: WebSocketEnvelope) => {
     switch (envelope.event) {
       case 'sys:connected': {
         const payload = envelope.payload as SysConnectedPayload;
@@ -103,7 +81,13 @@ export function useWebSocket({
 
       case 'chat:new_message': {
         const msg = envelope.payload as ChatMessage;
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => {
+          // Strictly deduplicate by message ID
+          if (prev.some((m) => m.id === msg.id)) {
+            return prev;
+          }
+          return [...prev, msg];
+        });
         break;
       }
 
@@ -129,14 +113,89 @@ export function useWebSocket({
       default:
         break;
     }
-  };
+  }, []);
+
+  const connect = useCallback(() => {
+    if (!roomId || !nickname) return;
+
+    // Clean up any existing connection before opening a new one
+    if (socketRef.current) {
+      isClosingExplicitlyRef.current = true;
+      socketRef.current.onopen = null;
+      socketRef.current.onclose = null;
+      socketRef.current.onerror = null;
+      socketRef.current.onmessage = null;
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    isClosingExplicitlyRef.current = false;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = process.env.NEXT_PUBLIC_WS_HOST || 'localhost:8081';
+    let url = `${protocol}//${host}/ws?room_id=${encodeURI(roomId)}&client_type=${clientType}`;
+
+    if (token) {
+      url += `&token=${encodeURIComponent(token)}`;
+    } else {
+      url += `&nickname=${encodeURIComponent(nickname)}`;
+    }
+
+    try {
+      const ws = new WebSocket(url);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        setIsConnected(true);
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        // Only reconnect if this wasn't an intentional teardown
+        if (!isClosingExplicitlyRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connect();
+          }, 2500);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.warn('WebSocket encountered error:', err);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const envelope: WebSocketEnvelope = JSON.parse(event.data);
+          handleEnvelope(envelope);
+        } catch (e) {
+          console.error('Failed to parse WS payload:', e);
+        }
+      };
+    } catch (e) {
+      console.warn('Failed to construct WebSocket:', e);
+    }
+  }, [roomId, nickname, token, clientType, handleEnvelope]);
 
   useEffect(() => {
     connect();
     return () => {
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      isClosingExplicitlyRef.current = true;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       if (socketRef.current) {
+        socketRef.current.onopen = null;
+        socketRef.current.onclose = null;
+        socketRef.current.onerror = null;
+        socketRef.current.onmessage = null;
         socketRef.current.close();
+        socketRef.current = null;
       }
     };
   }, [connect]);
