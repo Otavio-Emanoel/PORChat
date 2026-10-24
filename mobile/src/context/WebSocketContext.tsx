@@ -51,15 +51,29 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isClosingExplicitlyRef = useRef<boolean>(false);
 
   const connect = useCallback(() => {
     if (!roomId) return;
 
     if (socketRef.current) {
+      isClosingExplicitlyRef.current = true;
+      socketRef.current.onopen = null;
+      socketRef.current.onclose = null;
+      socketRef.current.onerror = null;
+      socketRef.current.onmessage = null;
       socketRef.current.close();
+      socketRef.current = null;
     }
 
-    const host = serverHost.trim() || 'localhost:8080';
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    isClosingExplicitlyRef.current = false;
+
+    const host = serverHost.trim() || 'localhost:8081';
     const url = `ws://${host}/ws?room_id=${encodeURI(roomId)}&nickname=${encodeURIComponent(nickname)}&client_type=mobile`;
 
     try {
@@ -72,9 +86,11 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       ws.onclose = () => {
         setIsConnected(false);
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
-        }, 2500);
+        if (!isClosingExplicitlyRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connect();
+          }, 2500);
+        }
       };
 
       ws.onerror = (err) => {
@@ -122,7 +138,12 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       case 'chat:new_message': {
         const msg = envelope.payload as ChatMessage;
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) {
+            return prev;
+          }
+          return [...prev, msg];
+        });
         break;
       }
 
@@ -177,8 +198,19 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     return () => {
       isCancelled = true;
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (socketRef.current) socketRef.current.close();
+      isClosingExplicitlyRef.current = true;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (socketRef.current) {
+        socketRef.current.onopen = null;
+        socketRef.current.onclose = null;
+        socketRef.current.onerror = null;
+        socketRef.current.onmessage = null;
+        socketRef.current.close();
+        socketRef.current = null;
+      }
     };
   }, [connect, roomId, serverHost]);
 
