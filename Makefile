@@ -30,3 +30,6 @@ mobile-start:
 
 test:
 	cd api && go test ./...
+	cd shared && npm run typecheck
+	cd web && npm run typecheck
+	cd mobile && npm run typecheck
