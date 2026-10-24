@@ -65,9 +65,26 @@ func main() {
 	// WebSocket route
 	r.Get("/ws", wsHandler.ServeWS)
 
-	port := ":8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	if !strings.HasPrefix(port, ":") {
+		port = ":" + port
+	}
+
+	listener, err := net.Listen("tcp", port)
+	if err != nil {
+		log.Printf("Port %s busy (%v), trying fallback :8081...", port, err)
+		port = ":8081"
+		listener, err = net.Listen("tcp", port)
+		if err != nil {
+			log.Fatalf("Server failed to bind: %v", err)
+		}
+	}
+
 	log.Printf("🚀 PORChat API running at http://localhost%s", port)
-	if err := http.ListenAndServe(port, r); err != nil {
+	if err := http.Serve(listener, r); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
