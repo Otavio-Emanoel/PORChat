@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import { Platform } from 'react-native';
 import type {
   WebSocketEnvelope,
   ChatMessage,
@@ -31,10 +32,18 @@ const WebSocketContext = createContext<WebSocketContextType | null>(null);
 
 const DEFAULT_ROOM_ID = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
 
+const getDefaultHost = () => {
+  const win = typeof globalThis !== 'undefined' ? (globalThis as Record<string, unknown>).window as { location?: { hostname?: string } } | undefined : undefined;
+  if (Platform.OS === 'web' && win?.location?.hostname) {
+    return `${win.location.hostname}:8081`;
+  }
+  return '192.168.3.138:8081';
+};
+
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roomId, setRoomId] = useState(DEFAULT_ROOM_ID);
   const [nickname, setNickname] = useState('Otavio_Mobile');
-  const [serverHost, setServerHost] = useState('localhost:8080');
+  const [serverHost, setServerHost] = useState(getDefaultHost);
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<Array<{ id: string; nickname: string }>>([]);

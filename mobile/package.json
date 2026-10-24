@@ -1,18 +1,21 @@
 {
   "name": "porchat-mobile",
   "version": "1.0.0",
-  "main": "App.tsx",
+  "main": "expo/AppEntry.js",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
+    "start": "expo start --port 8082",
+    "android": "expo start --android --port 8082",
+    "ios": "expo start --ios --port 8082",
+    "web": "expo start --web --port 8082",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~3.2.3",
     "expo": "~51.0.0",
     "react": "18.2.0",
-    "react-native": "0.74.1"
+    "react-dom": "18.2.0",
+    "react-native": "0.74.1",
+    "react-native-web": "~0.19.10"
   },
   "devDependencies": {
     "@types/react": "~18.2.45",
