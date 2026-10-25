@@ -47,6 +47,8 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const {
     messages,
     sendMessage,
+    sendTyping,
+    typingUsers,
     isConnected,
     gameState,
     nickname,
@@ -145,10 +147,37 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     }
   }, [isGameActive]);
 
+  // Typing indicator debounce & PIN formatter (Item 8 & 22)
+  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const formatRoomPin = (input: string) => {
+    let clean = input.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (clean.startsWith('POR')) {
+      clean = clean.slice(3);
+    }
+    if (clean.length > 0) {
+      return `POR-${clean.slice(0, 5)}`;
+    }
+    return '';
+  };
+
   // Handle Input in Chat
   const [inputText, setInputText] = useState('');
+  const handleInputChange = (text: string) => {
+    setInputText(text);
+    if (text.trim().length > 0) {
+      sendTyping(true);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => sendTyping(false), 2000);
+    } else {
+      sendTyping(false);
+    }
+  };
+
   const handleSend = () => {
     if (!inputText.trim()) return;
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    sendTyping(false);
     sendMessage(inputText.trim());
     setInputText('');
   };
@@ -367,6 +396,12 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.otherMessageText]}>
             {item.content}
           </Text>
+          <View style={styles.messageFooterRow}>
+            <Text style={styles.messageTimeText}>
+              {new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+            {isMe && <Text style={styles.checkMarkText}> ✓✓</Text>}
+          </View>
         </View>
       </View>
     );
@@ -710,11 +745,26 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               <TextInput
                 style={[styles.modalInput, styles.pinInput]}
                 value={roomPin}
-                onChangeText={(t) => setRoomPin(t.toUpperCase())}
+                onChangeText={(t) => setRoomPin(formatRoomPin(t))}
                 placeholder="POR-1000"
                 placeholderTextColor="#999"
                 autoCapitalize="characters"
               />
+
+              <TouchableOpacity
+                style={styles.pasteCodeBtn}
+                onPress={async () => {
+                  try {
+                    const nav = typeof globalThis !== 'undefined' ? (globalThis as any).navigator : null;
+                    if (Platform.OS === 'web' && nav?.clipboard?.readText) {
+                      const text = await nav.clipboard.readText();
+                      if (text) setRoomPin(formatRoomPin(text));
+                    }
+                  } catch (e) {}
+                }}
+              >
+                <Text style={styles.pasteCodeBtnText}>📋 Colar Código</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity style={styles.primaryModalBtn} onPress={handleJoinByPin}>
                 <Text style={styles.primaryModalBtnText}>Entrar na Sala</Text>
@@ -829,13 +879,24 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           contentContainerStyle={styles.messageList}
+          ListFooterComponent={
+            Object.keys(typingUsers).length > 0 ? (
+              <View style={styles.typingRow}>
+                {Object.values(typingUsers).map((u) => (
+                  <Text key={u.nickname} style={styles.typingText}>
+                    ✍️ {u.nickname} está digitando...
+                  </Text>
+                ))}
+              </View>
+            ) : null
+          }
         />
 
-        {/* Quick Emoji Reaction Bar */}
+        {/* Quick Emoji Reaction Bar (Item 21) */}
         <View style={styles.reactionBar}>
-          <Text style={styles.reactionBarLabel}>Reagir ao vivo:</Text>
+          <Text style={styles.reactionBarLabel}>Reagir ao vivo no telão:</Text>
           <View style={styles.reactionRow}>
-            {['🔥', '👏', '😂', '👑', '🤯', '💀'].map((emoji) => (
+            {['🔥', '💀', '🍅', '👏', '🤯', '👑', '🎯'].map((emoji) => (
               <TouchableOpacity
                 key={emoji}
                 style={styles.reactionButton}
@@ -853,7 +914,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           <TextInput
             style={styles.textInput}
             value={inputText}
-            onChangeText={setInputText}
+            onChangeText={handleInputChange}
             placeholder={`Conversar como ${nickname}...`}
             placeholderTextColor="#888"
           />
@@ -1477,5 +1538,44 @@ const styles = StyleSheet.create({
   },
   demoBtnTextActive: {
     color: '#FFF',
+  },
+  messageFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  messageTimeText: {
+    fontSize: 10,
+    color: '#868E96',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  checkMarkText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: colors.brand.primary,
+  },
+  pasteCodeBtn: {
+    paddingVertical: 8,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  pasteCodeBtnText: {
+    color: colors.brand.primary,
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  typingRow: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    marginVertical: 4,
+  },
+  typingText: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
   },
 });

@@ -9,7 +9,7 @@ import {
   ScrollView,
   Platform,
   Animated,
-  Easing,
+  Vibration,
 } from 'react-native';
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
@@ -21,6 +21,32 @@ const QUIZ_BUTTON_COLORS = {
   D: { bg: '#1DD1A1', border: '#10AC84' }, // Emerald
 };
 
+const PARTY_REACTIONS = ['🔥', '💀', '🍅', '👏', '🤯', '👑', '🎯'];
+
+const QUICK_ARGUMENTS = [
+  'Minha tese irrefutável é que...',
+  'A tradição e o bom senso mostram...',
+  'Discordo veementemente porque...',
+  'Pense nas consequências lógicas...',
+];
+
+const triggerHaptic = (type: 'tap' | 'success' | 'buzzer' = 'tap') => {
+  if (Platform.OS === 'web') {
+    try {
+      const nav = typeof globalThis !== 'undefined' ? (globalThis as any).navigator : null;
+      if (nav && 'vibrate' in nav) {
+        if (type === 'tap') nav.vibrate(30);
+        else if (type === 'success') nav.vibrate([0, 40, 50, 60]);
+        else nav.vibrate([0, 100, 50, 100]);
+      }
+    } catch (e) {}
+    return;
+  }
+  if (type === 'tap') Vibration.vibrate(40);
+  else if (type === 'success') Vibration.vibrate([0, 50, 60, 70]);
+  else Vibration.vibrate([0, 120, 60, 120]);
+};
+
 const TactileCard: React.FC<{
   onPress: () => void;
   style?: any;
@@ -30,6 +56,7 @@ const TactileCard: React.FC<{
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
+    triggerHaptic('tap');
     Animated.spring(scaleAnim, {
       toValue: 0.93,
       useNativeDriver: true,
@@ -64,8 +91,13 @@ const TactileCard: React.FC<{
 export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { gameState, castVote, sendReaction, submitArgument, submitQuizAnswer, nickname } = useWebSocketContext();
   const [argumentText, setArgumentText] = useState('');
+  const [argumentSent, setArgumentSent] = useState(false);
   const [votedSide, setVotedSide] = useState<'side_a' | 'side_b' | null>(null);
   const [votedQuizChoice, setVotedQuizChoice] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
+
+  // Reaction Combo Multiplier (Item 21)
+  const [comboCount, setComboCount] = useState(0);
+  const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const isQuiz = gameState?.game_type === 'quiz';
   const phase = gameState?.phase || 'CHAT';
@@ -77,29 +109,47 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
   useEffect(() => {
     if (phase === 'QUESTION') {
       setVotedQuizChoice(null);
+      triggerHaptic('buzzer');
     }
   }, [quiz?.current_question_index, phase]);
 
   const handleVote = (side: 'side_a' | 'side_b') => {
+    triggerHaptic('success');
     setVotedSide(side);
     castVote(side);
   };
 
   const handleSubmitArg = () => {
     if (!argumentText.trim()) return;
+    triggerHaptic('success');
     submitArgument(argumentText.trim());
-    setArgumentText('');
+    setArgumentSent(true);
+    setTimeout(() => setArgumentSent(false), 3000);
   };
 
   const handleQuizAnswer = (choice: 'A' | 'B' | 'C' | 'D') => {
-    if (votedQuizChoice) return; // Only 1 pick per question
+    if (votedQuizChoice) return;
+    triggerHaptic('buzzer');
     setVotedQuizChoice(choice);
     submitQuizAnswer(choice);
   };
 
+  const handleReactionPress = (emoji: string) => {
+    triggerHaptic('tap');
+    sendReaction(emoji);
+
+    setComboCount((prev) => prev + 1);
+    if (comboTimeoutRef.current) clearTimeout(comboTimeoutRef.current);
+    comboTimeoutRef.current = setTimeout(() => {
+      setComboCount(0);
+    }, 1400);
+  };
+
   const isDebater =
     debate?.debater_a?.nickname === nickname ||
-    debate?.debater_b?.nickname === nickname;
+    debate?.debater_b?.nickname === nickname ||
+    debate?.debater_a?.id === nickname ||
+    debate?.debater_b?.id === nickname;
 
   const myQuizScore = quiz?.leaderboard?.find((entry) => entry.nickname === nickname);
 
@@ -224,28 +274,68 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
               </View>
             )}
 
+            {/* Dedicated Debater Argument Workspace (Item 20) */}
             {(phase === 'OPENING_ARGUMENTS' || phase === 'REBUTTAL') && (
               <View style={styles.card}>
+                <View style={styles.roleHeader}>
+                  <Text style={[styles.roleBadge, isDebater ? styles.roleDebater : styles.roleJuror]}>
+                    {isDebater ? '🎤 VOCÊ É O DEBATEDOR OFICIAL' : '👀 VOCÊ É JURADO POPULAR'}
+                  </Text>
+                </View>
+
                 <Text style={styles.sectionTitle}>
                   {phase === 'OPENING_ARGUMENTS' ? 'Argumentos Iniciais' : 'Fase de Réplica'}
                 </Text>
                 <Text style={styles.sectionSubtitle}>
                   {isDebater
-                    ? 'Você é um dos debatedores! Digite sua tese e envie para o palco:'
-                    : 'Você está no júri. Acompanhe os argumentos ao vivo e prepare seu voto:'}
+                    ? 'Digite sua tese com clareza. Ela aparecerá com destaque no telão da sala:'
+                    : 'Acompanhe os debatedores pelo telão e prepare seu voto para a próxima fase!'}
                 </Text>
+
+                {/* Inspiration Template Pills */}
+                {isDebater && (
+                  <View style={styles.templatePillsRow}>
+                    {QUICK_ARGUMENTS.map((arg, idx) => (
+                      <TouchableOpacity
+                        key={idx}
+                        style={styles.templatePill}
+                        onPress={() => setArgumentText((prev) => (prev ? `${prev} ${arg}` : arg))}
+                      >
+                        <Text style={styles.templatePillText}>{arg}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
 
                 <TextInput
                   style={styles.textArea}
                   value={argumentText}
                   onChangeText={setArgumentText}
-                  placeholder="Digite seu argumento ou ponto de vista aqui..."
+                  placeholder={
+                    isDebater
+                      ? 'Escreva aqui seus melhores argumentos e defenda sua posição...'
+                      : 'Você pode enviar sugestões ou notas para a bancada...'
+                  }
                   placeholderTextColor={colors.ink.muted}
                   multiline
+                  maxLength={280}
                   numberOfLines={4}
                 />
-                <TouchableOpacity style={styles.submitArgButton} onPress={handleSubmitArg}>
-                  <Text style={styles.submitArgButtonText}>Enviar Argumento ao Palco</Text>
+
+                {/* Character Count */}
+                <View style={styles.charCountRow}>
+                  <Text style={[styles.charCountText, argumentText.length > 250 && styles.charCountWarning]}>
+                    {argumentText.length} / 280 caracteres
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.submitArgButton, argumentSent && styles.submitArgButtonSuccess]}
+                  onPress={handleSubmitArg}
+                >
+                  <Text style={styles.submitArgButtonText}>
+                    {argumentSent ? '✓ Argumento Transmitido ao Telão!' : 'Transmitir Tese ao Telão TV'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -265,13 +355,15 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                   ]}
                   onPress={() => handleVote('side_a')}
                 >
-                  <Text style={styles.hugeVoteButtonLabel}>LADO A (CORAL)</Text>
+                  <Text style={styles.hugeVoteButtonLabel}>
+                    {debate?.side_a_label || 'LADO A (CORAL)'}
+                  </Text>
                   <Text style={styles.hugeVoteButtonName}>
                     {debate?.debater_a?.nickname || 'Defesa A'}
                   </Text>
                   {votedSide === 'side_a' && (
                     <View style={styles.votedBadgeContainer}>
-                      <Text style={styles.votedBadge}>✓ SEU VOTO</Text>
+                      <Text style={styles.votedBadge}>✓ SEU VOTO COMPUTADO</Text>
                     </View>
                   )}
                 </TactileCard>
@@ -285,13 +377,15 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                   ]}
                   onPress={() => handleVote('side_b')}
                 >
-                  <Text style={[styles.hugeVoteButtonLabel, { color: colors.ink.main }]}>LADO B (MENTA)</Text>
+                  <Text style={[styles.hugeVoteButtonLabel, { color: colors.ink.main }]}>
+                    {debate?.side_b_label || 'LADO B (MENTA)'}
+                  </Text>
                   <Text style={[styles.hugeVoteButtonName, { color: colors.ink.main }]}>
                     {debate?.debater_b?.nickname || 'Defesa B'}
                   </Text>
                   {votedSide === 'side_b' && (
                     <View style={styles.votedBadgeContainer}>
-                      <Text style={[styles.votedBadge, { color: colors.ink.main }]}>✓ SEU VOTO</Text>
+                      <Text style={[styles.votedBadge, { color: colors.ink.main }]}>✓ SEU VOTO COMPUTADO</Text>
                     </View>
                   )}
                 </TactileCard>
@@ -304,9 +398,9 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                 <Text style={styles.winnerTitle}>🏆 Veredito dos Jurados</Text>
                 <Text style={styles.winnerSubtitle}>
                   {debate?.winner_side === 'side_a'
-                    ? 'Lado A conquistou a vitória!'
+                    ? 'Lado Coral conquistou a vitória!'
                     : debate?.winner_side === 'side_b'
-                    ? 'Lado B conquistou a vitória!'
+                    ? 'Lado Menta conquistou a vitória!'
                     : 'Empate total no veredito!'}
                 </Text>
                 <View style={styles.scoreRow}>
@@ -323,16 +417,24 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
           </View>
         )}
 
-        {/* Live Audience Emojis Burst */}
+        {/* Live Audience Emojis Burst Wheel (Item 21) */}
         <View style={styles.reactionSection}>
-          <Text style={styles.reactionTitle}>Disparar Reações para o Modo TV:</Text>
+          <View style={styles.reactionHeaderRow}>
+            <Text style={styles.reactionTitle}>Reações em Tempo Real:</Text>
+            {comboCount > 1 && (
+              <View style={styles.comboBadge}>
+                <Text style={styles.comboText}>🔥 x{comboCount} COMBO!</Text>
+              </View>
+            )}
+          </View>
+
           <View style={styles.reactionRow}>
-            {['🔥', '👏', '🤯', '🍅'].map((emoji) => (
+            {PARTY_REACTIONS.map((emoji) => (
               <TouchableOpacity
                 key={emoji}
                 style={styles.reactionButton}
-                onPress={() => sendReaction(emoji)}
-                activeOpacity={0.5}
+                onPress={() => handleReactionPress(emoji)}
+                activeOpacity={0.6}
               >
                 <Text style={styles.reactionEmoji}>{emoji}</Text>
               </TouchableOpacity>
@@ -353,308 +455,360 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   backButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   backButtonText: {
-    color: colors.surface.white,
-    fontWeight: '700',
+    color: '#FFF',
     fontSize: 13,
+    fontWeight: 'bold',
   },
   timerContainer: {
-    backgroundColor: 'rgba(253, 203, 110, 0.2)',
-    paddingHorizontal: 16,
+    backgroundColor: colors.brand.reward,
+    paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.brand.reward,
+    borderRadius: 20,
   },
   timerText: {
-    color: colors.brand.reward,
+    color: colors.ink.main,
     fontWeight: '900',
-    fontSize: 18,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontSize: 16,
   },
   content: {
-    padding: 16,
-    gap: 16,
+    padding: 20,
   },
   topicCard: {
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 24,
     padding: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    marginBottom: 20,
   },
   phaseBadge: {
     color: colors.brand.reward,
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    marginBottom: 4,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 6,
   },
   topicText: {
-    color: colors.surface.white,
+    color: '#FFF',
     fontSize: 18,
     fontWeight: '800',
     lineHeight: 24,
   },
-  card: {
-    backgroundColor: colors.surface.white,
-    borderRadius: 24,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.ink.main,
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    color: colors.ink.muted,
-    lineHeight: 18,
-    marginBottom: 14,
-  },
   quizWrapper: {
-    gap: 16,
+    width: '100%',
   },
   quizControls: {
-    gap: 10,
+    width: '100%',
   },
   quizGrid: {
-    gap: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 12,
   },
   quizButton: {
-    borderRadius: 20,
-    padding: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 5,
-    elevation: 3,
+    width: '48%',
+    minHeight: 120,
+    borderRadius: 24,
+    padding: 16,
+    marginBottom: 16,
+    borderBottomWidth: 6,
+    justifyContent: 'space-between',
   },
   selectedQuizButton: {
+    transform: [{ scale: 1.02 }],
     borderWidth: 3,
-    borderColor: colors.brand.reward,
+    borderColor: '#FFF',
   },
   dimmedQuizButton: {
-    opacity: 0.45,
+    opacity: 0.35,
   },
   quizOptionLetter: {
-    fontSize: 22,
+    color: '#FFF',
+    fontSize: 28,
     fontWeight: '900',
-    color: colors.surface.white,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    textAlign: 'center',
-    lineHeight: 38,
-    marginRight: 12,
   },
   quizOptionText: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.surface.white,
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginTop: 8,
   },
   quizChoiceCheck: {
+    color: '#FFF',
     fontSize: 11,
     fontWeight: '900',
-    color: colors.surface.white,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    marginTop: 4,
   },
   debateWrapper: {
-    gap: 16,
+    width: '100%',
+  },
+  card: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    marginBottom: 20,
+  },
+  roleHeader: {
+    marginBottom: 10,
+  },
+  roleBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 10,
+    fontSize: 11,
+    fontWeight: '900',
+    alignSelf: 'flex-start',
+    overflow: 'hidden',
+  },
+  roleDebater: {
+    backgroundColor: colors.brand.action,
+    color: '#FFF',
+  },
+  roleJuror: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    color: colors.brand.reward,
+  },
+  sectionTitle: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  sectionSubtitle: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  templatePillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12,
+  },
+  templatePill: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  templatePillText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  textArea: {
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 16,
+    padding: 14,
+    color: '#FFF',
+    fontSize: 14,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  charCountRow: {
+    alignItems: 'flex-end',
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  charCountText: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  charCountWarning: {
+    color: colors.brand.action,
+    fontWeight: 'bold',
+  },
+  submitArgButton: {
+    backgroundColor: colors.brand.primary,
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    shadowColor: colors.brand.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitArgButtonSuccess: {
+    backgroundColor: '#10AC84',
+  },
+  submitArgButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  votingContainer: {
+    marginBottom: 20,
+  },
+  votingTitle: {
+    color: '#FFF',
+    fontSize: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  votingSubtitle: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  hugeVoteButton: {
+    width: '100%',
+    minHeight: 130,
+    borderRadius: 28,
+    padding: 24,
+    marginBottom: 16,
+    justifyContent: 'center',
+    borderBottomWidth: 8,
+  },
+  voteButtonSideA: {
+    backgroundColor: colors.brand.action,
+    borderBottomColor: '#D63031',
+  },
+  voteButtonSideB: {
+    backgroundColor: colors.brand.mint,
+    borderBottomColor: '#00A8A3',
+  },
+  selectedVoteButton: {
+    borderWidth: 4,
+    borderColor: '#FFF',
+  },
+  hugeVoteButtonLabel: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  hugeVoteButtonName: {
+    color: '#FFF',
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  votedBadgeContainer: {
+    marginTop: 8,
+  },
+  votedBadge: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
   matchupRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
+    justifyContent: 'space-around',
+    marginTop: 16,
   },
   playerBadge: {
-    flex: 1,
-    padding: 12,
     borderWidth: 2,
     borderRadius: 16,
+    padding: 12,
     alignItems: 'center',
+    minWidth: 100,
   },
   playerBadgeLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 1,
-    marginBottom: 2,
+    marginBottom: 4,
   },
   playerBadgeName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.ink.main,
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   vsText: {
-    paddingHorizontal: 12,
+    color: 'rgba(255,255,255,0.4)',
     fontSize: 16,
     fontWeight: '900',
-    color: colors.ink.muted,
   },
-  textArea: {
-    backgroundColor: colors.surface.light,
-    borderWidth: 1,
-    borderColor: colors.surface.border,
-    borderRadius: 18,
-    padding: 14,
-    fontSize: 14,
-    color: colors.ink.main,
-    minHeight: 100,
-    textAlignVertical: 'top',
-    marginBottom: 14,
-  },
-  submitArgButton: {
-    backgroundColor: colors.brand.primary,
-    paddingVertical: 14,
-    borderRadius: 18,
-    alignItems: 'center',
-    shadowColor: colors.brand.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  submitArgButtonText: {
-    color: colors.surface.white,
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  votingContainer: {
-    gap: 14,
-  },
-  votingTitle: {
-    color: colors.surface.white,
+  winnerTitle: {
+    color: colors.brand.reward,
     fontSize: 22,
     fontWeight: '900',
-    textAlign: 'center',
-  },
-  votingSubtitle: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
     textAlign: 'center',
     marginBottom: 6,
   },
-  hugeVoteButton: {
-    borderRadius: 24,
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderBottomWidth: 6,
-    borderBottomColor: 'rgba(0,0,0,0.3)',
-  },
-  voteButtonSideA: {
-    backgroundColor: colors.brand.action, // Coral
-  },
-  voteButtonSideB: {
-    backgroundColor: colors.brand.mint,   // Mint
-  },
-  selectedVoteButton: {
-    borderWidth: 4,
-    borderColor: colors.brand.reward,
-  },
-  hugeVoteButtonLabel: {
-    color: colors.surface.white,
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-  hugeVoteButtonName: {
-    color: colors.surface.white,
-    fontSize: 26,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  votedBadgeContainer: {
-    marginTop: 8,
-    backgroundColor: 'rgba(0,0,0,0.25)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  votedBadge: {
-    color: colors.surface.white,
-    fontWeight: '900',
-    fontSize: 12,
-    letterSpacing: 1,
-  },
-  winnerTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: colors.brand.primary,
-    textAlign: 'center',
-    marginBottom: 4,
-  },
   winnerSubtitle: {
+    color: '#FFF',
     fontSize: 15,
-    color: colors.ink.main,
     textAlign: 'center',
-    fontWeight: '700',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   scoreRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
   },
   scoreText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
   },
   scoreTextDivider: {
-    fontSize: 18,
-    color: colors.ink.muted,
+    color: 'rgba(255,255,255,0.2)',
+    fontSize: 16,
   },
   reactionSection: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 24,
-    padding: 16,
-    marginTop: 8,
+    marginTop: 10,
+    marginBottom: 30,
+  },
+  reactionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
   },
   reactionTitle: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 12,
-    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  comboBadge: {
+    backgroundColor: colors.brand.action,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  comboText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '900',
   },
   reactionRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
   },
   reactionButton: {
-    width: 64,
-    height: 64,
+    width: 44,
+    height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderBottomWidth: 4,
-    borderBottomColor: 'rgba(0,0,0,0.3)',
   },
   reactionEmoji: {
-    fontSize: 30,
+    fontSize: 22,
   },
 });

@@ -21,11 +21,13 @@ interface WebSocketContextType {
   setRoomId: (id: string) => void;
   setNickname: (name: string) => void;
   sendMessage: (content: string) => void;
+  sendTyping: (isTyping: boolean) => void;
   sendAction: (event: string, payload: unknown) => void;
   castVote: (choice: 'side_a' | 'side_b') => void;
   sendReaction: (emoji: string) => void;
   submitArgument: (argument: string) => void;
   submitQuizAnswer: (choice: 'A' | 'B' | 'C' | 'D') => void;
+  typingUsers: Record<string, { nickname: string; timestamp: number }>;
 }
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
@@ -48,6 +50,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<Array<{ id: string; nickname: string }>>([]);
   const [gameState, setGameState] = useState<GameStateUpdatePayload | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Record<string, { nickname: string; timestamp: number }>>({});
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -166,6 +169,20 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         break;
       }
 
+      case 'chat:typing': {
+        const payload = envelope.payload as { user_id: string; nickname: string; is_typing: boolean };
+        setTypingUsers((prev) => {
+          const next = { ...prev };
+          if (payload.is_typing) {
+            next[payload.user_id] = { nickname: payload.nickname, timestamp: Date.now() };
+          } else {
+            delete next[payload.user_id];
+          }
+          return next;
+        });
+        break;
+      }
+
       default:
         break;
     }
@@ -229,6 +246,10 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     sendAction('chat:send', { content });
   };
 
+  const sendTyping = (isTyping: boolean) => {
+    sendAction('chat:typing', { is_typing: isTyping });
+  };
+
   const castVote = (choice: 'side_a' | 'side_b') => {
     sendAction('debate:cast_vote', { choice });
   };
@@ -262,11 +283,13 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setRoomId,
         setNickname,
         sendMessage,
+        sendTyping,
         sendAction,
         castVote,
         sendReaction,
         submitArgument,
         submitQuizAnswer,
+        typingUsers,
       }}
     >
       {children}
