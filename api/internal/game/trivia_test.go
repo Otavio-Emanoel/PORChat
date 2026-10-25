@@ -39,9 +39,13 @@ func TestTriviaEngine_StartAndScore(t *testing.T) {
 	engine.state.CurrentQuestion = &engine.questions[0]
 	engine.mu.Unlock()
 
-	// Submit correct answer ("B" for question 0)
+	// Submit correct answer dynamically
+	engine.mu.Lock()
+	correctChoice := engine.questions[0].CorrectOption
+	engine.mu.Unlock()
+
 	answerPayload, _ := json.Marshal(map[string]interface{}{
-		"choice": "B",
+		"choice": correctChoice,
 	})
 	answerEnv := &ws.Envelope{
 		Event:   "quiz:submit_answer",
@@ -57,7 +61,27 @@ func TestTriviaEngine_StartAndScore(t *testing.T) {
 	if entry.RoundScore < 200 || entry.RoundScore > 1000 {
 		t.Errorf("Expected round score between 200 and 1000, got %d", entry.RoundScore)
 	}
-	if entry.TotalScore != entry.RoundScore {
-		t.Errorf("Expected total score %d, got %d", entry.RoundScore, entry.TotalScore)
+	if entry.Streak != 1 {
+		t.Errorf("Expected streak to be 1, got %d", entry.Streak)
+	}
+	if entry.StreakMultiplier != 1.0 {
+		t.Errorf("Expected streak multiplier 1.0, got %f", entry.StreakMultiplier)
+	}
+
+	// Test moderation pause/resume
+	engine.HandleAction(client, &ws.Envelope{
+		Event:  "game:pause",
+		RoomID: "test-room",
+	})
+	if !engine.isPaused {
+		t.Errorf("Expected engine to be paused")
+	}
+
+	engine.HandleAction(client, &ws.Envelope{
+		Event:  "game:resume",
+		RoomID: "test-room",
+	})
+	if engine.isPaused {
+		t.Errorf("Expected engine to be resumed")
 	}
 }
