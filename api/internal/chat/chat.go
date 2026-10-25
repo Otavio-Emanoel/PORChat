@@ -11,6 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"os"
+	"path/filepath"
 )
 
 type Room struct {
@@ -44,8 +46,56 @@ func NewRoomStore() *RoomStore {
 		rooms:    make(map[string]*Room),
 		messages: make(map[string][]*ChatMessage),
 	}
-	store.seedRooms()
+	if !store.LoadFromDisk("data/chat_store.json") {
+		store.seedRooms()
+	}
 	return store
+}
+
+func (s *RoomStore) SaveToDisk(filePath string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	data := struct {
+		Rooms    map[string]*Room          `json:"rooms"`
+		Messages map[string][]*ChatMessage `json:"messages"`
+	}{
+		Rooms:    s.rooms,
+		Messages: s.messages,
+	}
+
+	bytes, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	_ = os.MkdirAll(filepath.Dir(filePath), 0755)
+	return os.WriteFile(filePath, bytes, 0644)
+}
+
+func (s *RoomStore) LoadFromDisk(filePath string) bool {
+	bytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return false
+	}
+
+	var data struct {
+		Rooms    map[string]*Room          `json:"rooms"`
+		Messages map[string][]*ChatMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(bytes, &data); err != nil {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(data.Rooms) > 0 {
+		s.rooms = data.Rooms
+	}
+	if len(data.Messages) > 0 {
+		s.messages = data.Messages
+	}
+	return true
 }
 
 func (s *RoomStore) seedRooms() {
@@ -200,13 +250,16 @@ func (s *RoomStore) CreateRoom(name, code string, isGroup bool, members []string
 			CreatedAt: time.Now(),
 		},
 	}
+	s.mu.Unlock()
+	go func() { _ = s.SaveToDisk("data/chat_store.json") }()
 	return room
 }
 
 func (s *RoomStore) AddMessage(msg *ChatMessage) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.messages[msg.RoomID] = append(s.messages[msg.RoomID], msg)
+	s.mu.Unlock()
+	go func() { _ = s.SaveToDisk("data/chat_store.json") }()
 }
 
 func (s *RoomStore) GetMessages(roomID string, limit int) []*ChatMessage {

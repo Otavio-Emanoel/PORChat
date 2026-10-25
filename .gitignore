@@ -29,6 +29,7 @@ yarn-error.log*
 # Go artifacts
 /api/bin/
 /api/tmp/
+/api/data/
 *.exe
 *.exe~
 *.dll

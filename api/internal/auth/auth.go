@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +23,7 @@ type User struct {
 	ID           string    `json:"id"`
 	Nickname     string    `json:"nickname"`
 	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
+	PasswordHash string    `json:"password_hash,omitempty"`
 	AvatarURL    string    `json:"avatar_url,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -44,9 +46,48 @@ func NewUserStore() *UserStore {
 		users: make(map[string]*User),
 		byID:  make(map[string]*User),
 	}
-	// Seed demo users (Pedro, Otavio, Raul)
-	store.seedUsers()
+	if !store.LoadFromDisk("data/user_store.json") {
+		store.seedUsers()
+	}
 	return store
+}
+
+func (s *UserStore) SaveToDisk(filePath string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	usersList := make([]*User, 0, len(s.users))
+	for _, u := range s.users {
+		usersList = append(usersList, u)
+	}
+
+	bytes, err := json.MarshalIndent(usersList, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	_ = os.MkdirAll(filepath.Dir(filePath), 0755)
+	return os.WriteFile(filePath, bytes, 0644)
+}
+
+func (s *UserStore) LoadFromDisk(filePath string) bool {
+	bytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return false
+	}
+
+	var usersList []*User
+	if err := json.Unmarshal(bytes, &usersList); err != nil {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range usersList {
+		s.users[strings.ToLower(u.Email)] = u
+		s.byID[u.ID] = u
+	}
+	return len(usersList) > 0
 }
 
 func (s *UserStore) seedUsers() {
@@ -126,6 +167,8 @@ func (s *UserStore) CreateUser(nickname, email, password string) (*User, error) 
 	}
 	s.users[emailNorm] = u
 	s.byID[u.ID] = u
+	s.mu.Unlock()
+	go func() { _ = s.SaveToDisk("data/user_store.json") }()
 	return u, nil
 }
 
