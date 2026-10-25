@@ -28,6 +28,7 @@ export function useWebSocket({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<Array<{ id: string; nickname: string }>>([]);
   const [gameState, setGameState] = useState<GameStateUpdatePayload | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Record<string, { nickname: string; timestamp: number }>>({});
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -106,6 +107,20 @@ export function useWebSocket({
             remaining_seconds: tick.remaining_seconds,
             phase_ends_at: tick.phase_ends_at,
           };
+        });
+        break;
+      }
+
+      case 'chat:typing': {
+        const payload = envelope.payload as { user_id: string; nickname: string; is_typing: boolean };
+        setTypingUsers((prev) => {
+          const next = { ...prev };
+          if (payload.is_typing) {
+            next[payload.user_id] = { nickname: payload.nickname, timestamp: Date.now() };
+          } else {
+            delete next[payload.user_id];
+          }
+          return next;
         });
         break;
       }
@@ -200,6 +215,25 @@ export function useWebSocket({
     };
   }, [connect]);
 
+  // Periodically clean up expired typing indicators (older than 3s)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setTypingUsers((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [uid, info] of Object.entries(next)) {
+          if (now - info.timestamp > 3000) {
+            delete next[uid];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const sendMessage = (content: string) => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
     const envelope: WebSocketEnvelope = {
@@ -207,6 +241,17 @@ export function useWebSocket({
       room_id: roomId,
       timestamp: Date.now(),
       payload: { content },
+    };
+    socketRef.current.send(JSON.stringify(envelope));
+  };
+
+  const sendTyping = (isTyping: boolean) => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+    const envelope: WebSocketEnvelope = {
+      event: 'chat:typing',
+      room_id: roomId,
+      timestamp: Date.now(),
+      payload: { is_typing: isTyping },
     };
     socketRef.current.send(JSON.stringify(envelope));
   };
@@ -227,7 +272,9 @@ export function useWebSocket({
     messages,
     onlineUsers,
     gameState,
+    typingUsers,
     sendMessage,
+    sendTyping,
     sendAction,
   };
 }
