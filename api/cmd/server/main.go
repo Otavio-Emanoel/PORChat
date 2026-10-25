@@ -73,7 +73,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8081"
 	}
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
@@ -81,8 +81,8 @@ func main() {
 
 	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Printf("Port %s busy (%v), trying fallback :8081...", port, err)
-		port = ":8081"
+		log.Printf("Port %s busy (%v), trying fallback :8088...", port, err)
+		port = ":8088"
 		listener, err = net.Listen("tcp", port)
 		if err != nil {
 			log.Fatalf("Server failed to bind: %v", err)

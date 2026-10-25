@@ -17,7 +17,7 @@ db-down:
 	docker compose down
 
 api-run:
-	cd api && go run cmd/server/main.go
+	cd api && PORT=8081 go run cmd/server/main.go
 
 api-build:
 	cd api && go build -o bin/server cmd/server/main.go
