@@ -89,4 +89,46 @@ func TestDebateEngine_StartAndVote(t *testing.T) {
 	if engine.state.VotesCount["side_a"] != 1 {
 		t.Errorf("Expected 1 vote for side_a, got %d", engine.state.VotesCount["side_a"])
 	}
+
+	// Test moderation controls
+	engine.HandleAction(clientA, &ws.Envelope{Event: "game:pause", RoomID: "test-room"})
+	if !engine.isPaused {
+		t.Errorf("Expected debate to be paused")
+	}
+
+	engine.HandleAction(clientA, &ws.Envelope{Event: "game:resume", RoomID: "test-room"})
+	if engine.isPaused {
+		t.Errorf("Expected debate to be resumed")
+	}
+
+	engine.HandleAction(clientA, &ws.Envelope{Event: "game:abort", RoomID: "test-room"})
+	if engine.phase != PhaseChat {
+		t.Errorf("Expected phase CHAT after abort, got %v", engine.phase)
+	}
+}
+
+func TestDebateEngine_CuratedTopicBank(t *testing.T) {
+	hub := setupTestHub()
+	engine := NewDebateEngine("test-room-curated", hub)
+
+	// Start without explicit topic
+	startPayload, _ := json.Marshal(map[string]interface{}{
+		"game_type": "debate",
+		"category":  "Tech",
+	})
+	engine.HandleAction(&ws.Client{UserID: "u1", Nickname: "User1", RoomID: "test-room-curated"}, &ws.Envelope{
+		Event:   "game:start",
+		RoomID:  "test-room-curated",
+		Payload: startPayload,
+	})
+
+	if engine.state.Topic == "" {
+		t.Errorf("Expected non-empty topic from curated bank")
+	}
+	if engine.state.Category != "Tech" {
+		t.Errorf("Expected category Tech, got %s", engine.state.Category)
+	}
+	if engine.state.SideALabel == "" || engine.state.SideBLabel == "" {
+		t.Errorf("Expected side labels to be populated")
+	}
 }

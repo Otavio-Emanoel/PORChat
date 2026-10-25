@@ -192,7 +192,23 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 			}
 		}
 
-	case "game:start", "debate:submit_argument", "debate:cast_vote", "debate:reaction",
+	case "chat:typing":
+		var p struct {
+			IsTyping bool `json:"is_typing"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil {
+			payload := map[string]interface{}{
+				"user_id":   c.UserID,
+				"nickname":  c.Nickname,
+				"is_typing": p.IsTyping,
+			}
+			if outEnv, err := NewEnvelope("chat:typing", c.RoomID, payload); err == nil {
+				h.BroadcastToRoomExcept(c.RoomID, outEnv, c)
+			}
+		}
+
+	case "game:start", "game:pause", "game:resume", "game:skip_phase", "game:abort",
+		"debate:submit_argument", "debate:cast_vote", "debate:reaction",
 		"quiz:submit_answer", "bots:toggle", "game:bots_spawn":
 		if h.engineGetter != nil {
 			if eng := h.engineGetter(c.RoomID); eng != nil {
@@ -203,6 +219,27 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 	default:
 		log.Printf("Unhandled inbound event: %s from user: %s", env.Event, c.Nickname)
 	}
+}
+
+func (h *Hub) GetOnlineUsers(roomID string) []OnlineUser {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	var list []OnlineUser
+	seen := make(map[string]bool)
+	if clients, ok := h.rooms[roomID]; ok {
+		for cl := range clients {
+			if !seen[cl.UserID] {
+				seen[cl.UserID] = true
+				list = append(list, OnlineUser{
+					ID:         cl.UserID,
+					Nickname:   cl.Nickname,
+					ClientType: cl.ClientType,
+				})
+			}
+		}
+	}
+	return list
 }
 
 func (h *Hub) BroadcastToRoom(roomID string, env *Envelope) {

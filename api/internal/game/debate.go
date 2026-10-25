@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -20,20 +21,63 @@ const (
 	PhaseResults          DebatePhase = "RESULTS"
 )
 
+type DebateTopic struct {
+	Topic      string `json:"topic"`
+	Category   string `json:"category"`
+	SideALabel string `json:"side_a_label"`
+	SideBLabel string `json:"side_b_label"`
+}
+
+var curatedTopics = []DebateTopic{
+	// Guerra Tecnológica
+	{Topic: "Abas vs Espaços para indentação de código", Category: "Tech", SideALabel: "Abas (Tabs)", SideBLabel: "Espaços (Spaces)"},
+	{Topic: "TypeScript vs JavaScript puro no Frontend", Category: "Tech", SideALabel: "TypeScript", SideBLabel: "JavaScript Puro"},
+	{Topic: "Dark Mode vs Light Mode para trabalhar", Category: "Tech", SideALabel: "Dark Mode", SideBLabel: "Light Mode"},
+	{Topic: "Vim vs VS Code para programar", Category: "Tech", SideALabel: "Vim / Neovim", SideBLabel: "VS Code"},
+	{Topic: "Monolito bem feito vs Arquitetura de Microsserviços", Category: "Tech", SideALabel: "Monolito Fiel", SideBLabel: "Microsserviços"},
+
+	// Polêmicas Cotidianas
+	{Topic: "Biscoito ou Bolacha?", Category: "Cotidiano", SideALabel: "Biscoito", SideBLabel: "Bolacha"},
+	{Topic: "Café sem açúcar é psicopatia ou o único jeito certo?", Category: "Cotidiano", SideALabel: "Amargo é Vida", SideBLabel: "Doce & Suave"},
+	{Topic: "Áudios de WhatsApp acima de 1 minuto deviam ser banidos?", Category: "Cotidiano", SideALabel: "Banimento Já", SideBLabel: "Podcast de Amigo"},
+	{Topic: "Segunda-feira deveria ser feriado mundial obrigatório?", Category: "Cotidiano", SideALabel: "Feriado Eterno", SideBLabel: "Dia Produtivo"},
+	{Topic: "Dormir de meia no frio: aconchegante ou bizarro?", Category: "Cotidiano", SideALabel: "Pés Quentinhos", SideBLabel: "Agonia Total"},
+
+	// Alta Gastronomia de Boteco
+	{Topic: "Abacaxi na pizza é crime hediondo ou alta gastronomia?", Category: "Gastronomia", SideALabel: "Crime Culinário", SideBLabel: "Alta Gastronomia"},
+	{Topic: "Strogonoff se come com batata palha ou purê de batata?", Category: "Gastronomia", SideALabel: "Batata Palha Crocante", SideBLabel: "Purê Cremoso"},
+	{Topic: "Coxinha se come pela pontinha ou pela bunda?", Category: "Gastronomia", SideALabel: "Pela Pontinha", SideBLabel: "Pela Bunda Recheada"},
+	{Topic: "Cachorro-quente tem que levar purê de batata?", Category: "Gastronomia", SideALabel: "Com Purê (SP)", SideBLabel: "Sem Purê (Raiz)"},
+	{Topic: "Pizza fria no café da manhã é banquete dos deuses?", Category: "Gastronomia", SideALabel: "Manjar dos Deuses", SideBLabel: "Desespero Matinal"},
+
+	// Filmes & Cultura Pop
+	{Topic: "O final de Game of Thrones estragou toda a série?", Category: "Cultura Pop", SideALabel: "Estragou Tudo", SideBLabel: "Foi Incompreendido"},
+	{Topic: "Star Wars vs O Senhor dos Anéis: qual a maior saga?", Category: "Cultura Pop", SideALabel: "Star Wars", SideBLabel: "Senhor dos Anéis"},
+	{Topic: "Filme dublado ou legendado no cinema?", Category: "Cultura Pop", SideALabel: "Dublagem BR Lendária", SideBLabel: "Áudio Original Legendado"},
+	{Topic: "Severus Snape em Harry Potter: herói ou vilão amargurado?", Category: "Cultura Pop", SideALabel: "Herói Corajoso", SideBLabel: "Tóxico Amargurado"},
+	{Topic: "Shrek 2 é o ápice absoluto da animação mundial?", Category: "Cultura Pop", SideALabel: "Obra-Prima Suprema", SideBLabel: "Exagero Nostálgico"},
+}
+
 type Debater struct {
 	ID       string `json:"id"`
 	Nickname string `json:"nickname"`
+	Avatar   string `json:"avatar,omitempty"`
 	Argument string `json:"argument,omitempty"`
 	Votes    int    `json:"votes"`
 }
 
 type DebateState struct {
 	Topic            string         `json:"topic"`
+	Category         string         `json:"category,omitempty"`
+	SideALabel       string         `json:"side_a_label,omitempty"`
+	SideBLabel       string         `json:"side_b_label,omitempty"`
 	DebaterA         *Debater       `json:"debater_a"`
 	DebaterB         *Debater       `json:"debater_b"`
+	JurorIDs         []string       `json:"juror_ids,omitempty"`
 	CurrentSpeakerID string         `json:"current_speaker_id,omitempty"`
 	VotesCount       map[string]int `json:"votes_count"`
 	WinnerSide       string         `json:"winner_side,omitempty"`
+	IsPaused         bool           `json:"is_paused"`
 }
 
 type DebateEngine struct {
@@ -43,6 +87,7 @@ type DebateEngine struct {
 	phase            DebatePhase
 	phaseEndsAt      time.Time
 	remainingSeconds int
+	isPaused         bool
 	state            *DebateState
 	voters           map[string]string // userID -> side
 	stopTicker       chan struct{}
@@ -88,14 +133,34 @@ func (e *DebateEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 		var p struct {
 			GameType   string `json:"game_type"`
 			Topic      string `json:"topic"`
+			Category   string `json:"category"`
 			DebaterAID string `json:"debater_a_id"`
 			DebaterBID string `json:"debater_b_id"`
 		}
 		_ = json.Unmarshal(env.Payload, &p)
-		if p.Topic == "" {
-			p.Topic = "Abacaxi na pizza é crime ou alta gastronomia?"
+		e.startDebate(p.Topic, p.Category, p.DebaterAID, p.DebaterBID, client)
+
+	case "game:pause":
+		e.isPaused = true
+		if e.state != nil {
+			e.state.IsPaused = true
 		}
-		e.startDebate(p.Topic, p.DebaterAID, p.DebaterBID)
+		e.broadcastState()
+
+	case "game:resume":
+		e.isPaused = false
+		if e.state != nil {
+			e.state.IsPaused = false
+		}
+		e.broadcastState()
+
+	case "game:skip_phase":
+		e.onPhaseTimeout(e.phase)
+
+	case "game:abort":
+		e.phase = PhaseChat
+		e.broadcastState()
+		log.Printf("[Room %s] Debate aborted by host.", e.roomID)
 
 	case "debate:submit_argument":
 		var p struct {
@@ -170,26 +235,106 @@ func (e *DebateEngine) recordReaction(emoji string) {
 	}
 }
 
-func (e *DebateEngine) startDebate(topic, debaterAID, debaterBID string) {
+func (e *DebateEngine) startDebate(topic, category, debaterAID, debaterBID string, client *ws.Client) {
 	// Stop existing ticker if any
 	select {
 	case e.stopTicker <- struct{}{}:
 	default:
 	}
 
+	sideALabel := "Lado A (Coral)"
+	sideBLabel := "Lado B (Menta)"
+
+	if topic == "" {
+		// Pick random topic matching category or from all curated topics
+		var pool []DebateTopic
+		if category != "" {
+			for _, t := range curatedTopics {
+				if t.Category == category {
+					pool = append(pool, t)
+				}
+			}
+		}
+		if len(pool) == 0 {
+			pool = curatedTopics
+		}
+
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		selected := pool[r.Intn(len(pool))]
+		topic = selected.Topic
+		category = selected.Category
+		sideALabel = selected.SideALabel
+		sideBLabel = selected.SideBLabel
+	}
+
+	// Matchmaking: identify online candidates if debaters are not explicitly passed
+	onlineUsers := e.hub.GetOnlineUsers(e.roomID)
+	var candidates []ws.OnlineUser
+	for _, u := range onlineUsers {
+		if u.ClientType != "tv" {
+			candidates = append(candidates, u)
+		}
+	}
+
+	nameA := "Defesa Coral"
+	nameB := "Defesa Menta"
+	var jurorIDs []string
+
+	if debaterAID != "" {
+		for _, u := range candidates {
+			if u.ID == debaterAID {
+				nameA = u.Nickname
+				break
+			}
+		}
+	} else if len(candidates) > 0 {
+		debaterAID = candidates[0].ID
+		nameA = candidates[0].Nickname
+	} else if client != nil {
+		debaterAID = client.UserID
+		nameA = client.Nickname
+	} else {
+		debaterAID = "debater-a"
+	}
+
+	if debaterBID != "" {
+		for _, u := range candidates {
+			if u.ID == debaterBID {
+				nameB = u.Nickname
+				break
+			}
+		}
+	} else if len(candidates) > 1 {
+		debaterBID = candidates[1].ID
+		nameB = candidates[1].Nickname
+	} else {
+		debaterBID = "debater-b"
+	}
+
+	for _, u := range candidates {
+		if u.ID != debaterAID && u.ID != debaterBID {
+			jurorIDs = append(jurorIDs, u.ID)
+		}
+	}
+
 	e.voters = make(map[string]string)
+	e.isPaused = false
 	e.state = &DebateState{
-		Topic: topic,
+		Topic:      topic,
+		Category:   category,
+		SideALabel: sideALabel,
+		SideBLabel: sideBLabel,
 		DebaterA: &Debater{
 			ID:       debaterAID,
-			Nickname: "Defesa A (Coral)",
+			Nickname: nameA,
 			Votes:    0,
 		},
 		DebaterB: &Debater{
 			ID:       debaterBID,
-			Nickname: "Defesa B (Menta)",
+			Nickname: nameB,
 			Votes:    0,
 		},
+		JurorIDs:   jurorIDs,
 		VotesCount: map[string]int{"side_a": 0, "side_b": 0},
 	}
 
@@ -202,7 +347,7 @@ func (e *DebateEngine) transitionTo(nextPhase DebatePhase, durationSeconds int) 
 	e.remainingSeconds = durationSeconds
 	e.phaseEndsAt = time.Now().Add(time.Duration(durationSeconds) * time.Second)
 
-	log.Printf("[Room %s] Transitioning to phase %s (%ds)", e.roomID, nextPhase, durationSeconds)
+	log.Printf("[Room %s] Debate transitioning to phase %s (%ds)", e.roomID, nextPhase, durationSeconds)
 	e.broadcastState()
 
 	go e.runPhaseTicker(nextPhase, durationSeconds)
@@ -222,6 +367,11 @@ func (e *DebateEngine) runPhaseTicker(currentPhase DebatePhase, seconds int) {
 				e.mu.Unlock()
 				return
 			}
+			if e.isPaused {
+				e.mu.Unlock()
+				continue
+			}
+
 			e.remainingSeconds--
 
 			// Emit 1s tick

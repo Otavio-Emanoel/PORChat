@@ -84,6 +84,15 @@ func (r *RoomGameRouter) HandleAction(client *ws.Client, env *ws.Envelope) {
 		return
 	}
 
+	if env.Event == "game:pause" || env.Event == "game:resume" || env.Event == "game:skip_phase" || env.Event == "game:abort" {
+		if r.activeGame == "quiz" {
+			r.trivia.HandleAction(client, env)
+		} else {
+			r.debate.HandleAction(client, env)
+		}
+		return
+	}
+
 	if strings.HasPrefix(env.Event, "quiz:") {
 		r.trivia.HandleAction(client, env)
 		return
