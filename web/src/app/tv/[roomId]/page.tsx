@@ -23,6 +23,7 @@ import {
   Minimize2,
   Smartphone,
   Award,
+  Clock,
 } from 'lucide-react';
 
 interface Particle {
@@ -47,6 +48,18 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [originUrl, setOriginUrl] = useState('');
+  const [currentTime, setCurrentTime] = useState('');
+
+  // Update live stage clock
+  useEffect(() => {
+    const updateClock = () => {
+      const d = new Date();
+      setCurrentTime(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    };
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevPhaseRef = useRef<string>('');
@@ -217,6 +230,14 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Live Stage Clock */}
+          {currentTime && (
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white/10 border border-white/10 text-xs font-mono text-white/80">
+              <Clock size={13} className="text-brand-reward" />
+              <span>{currentTime}</span>
+            </div>
+          )}
+
           {/* TV Volume Slider Control (Item 24) */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/10 border border-white/10">
             <button
@@ -328,12 +349,42 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
           <div className="w-full flex flex-col items-center">
             {/* Clock & Phase Banner */}
             <div className="flex flex-col items-center mb-6">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-reward/20 border border-brand-reward/30 text-brand-reward text-xs sm:text-sm font-bold uppercase tracking-wider mb-2">
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-reward/20 border border-brand-reward/30 text-brand-reward text-xs sm:text-sm font-bold uppercase tracking-wider mb-4">
                 <Zap size={16} />
                 <span>QUIZ RELÂMPAGO • {phase.replace('_', ' ')}</span>
               </div>
-              <div className="text-6xl sm:text-8xl md:text-9xl font-black font-mono text-brand-reward tracking-tighter drop-shadow-[0_0_40px_rgba(253,203,110,0.6)]">
-                {remaining}s
+              {/* Circular Countdown Timer Ring (Item 64) */}
+              <div className="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center">
+                <svg className="w-full h-full -rotate-90 drop-shadow-[0_0_20px_rgba(253,203,110,0.4)]" viewBox="0 0 100 100">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="42"
+                    stroke="currentColor"
+                    strokeWidth="7"
+                    className="text-white/10"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="42"
+                    stroke={remaining > 5 ? '#00CEC9' : remaining > 2 ? '#FDCB6E' : '#FF7675'}
+                    strokeWidth="7"
+                    strokeDasharray={264}
+                    strokeDashoffset={264 - (264 * Math.max(0, Math.min(15, remaining))) / 15}
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-linear"
+                    fill="transparent"
+                  />
+                </svg>
+                <div className="absolute flex flex-col items-center justify-center">
+                  <span className={`text-3xl sm:text-4xl font-black font-mono tracking-tighter ${
+                    remaining <= 3 ? 'text-brand-action animate-ping' : 'text-brand-reward'
+                  }`}>
+                    {remaining}s
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -518,12 +569,42 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
           <div className="w-full flex flex-col items-center">
             {/* Clock & Phase Banner */}
             <div className="flex flex-col items-center mb-6">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/15 text-brand-reward text-xs sm:text-sm font-bold uppercase tracking-wider mb-2">
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/15 text-brand-reward text-xs sm:text-sm font-bold uppercase tracking-wider mb-4">
                 <Swords size={16} />
                 <span>MODO DEBATE • {phase.replace('_', ' ')}</span>
               </div>
-              <div className="text-6xl sm:text-8xl md:text-9xl font-black font-mono text-brand-reward tracking-tighter drop-shadow-[0_0_40px_rgba(253,203,110,0.6)]">
-                {remaining}s
+              {/* Circular Countdown Timer Ring (Item 64) */}
+              <div className="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center">
+                <svg className="w-full h-full -rotate-90 drop-shadow-[0_0_20px_rgba(253,203,110,0.4)]" viewBox="0 0 100 100">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="42"
+                    stroke="currentColor"
+                    strokeWidth="7"
+                    className="text-white/10"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="42"
+                    stroke={remaining > 10 ? '#00CEC9' : remaining > 5 ? '#FDCB6E' : '#FF7675'}
+                    strokeWidth="7"
+                    strokeDasharray={264}
+                    strokeDashoffset={264 - (264 * Math.max(0, Math.min(30, remaining))) / 30}
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-linear"
+                    fill="transparent"
+                  />
+                </svg>
+                <div className="absolute flex flex-col items-center justify-center">
+                  <span className={`text-3xl sm:text-4xl font-black font-mono tracking-tighter ${
+                    remaining <= 5 ? 'text-brand-action animate-ping' : 'text-brand-reward'
+                  }`}>
+                    {remaining}s
+                  </span>
+                </div>
               </div>
             </div>
 
