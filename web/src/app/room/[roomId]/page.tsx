@@ -44,6 +44,9 @@ interface RoomData {
   is_group: boolean;
   members?: string[];
   created_by?: string;
+  created_at?: string;
+  last_message?: string;
+  last_message_at?: string;
   unread_count?: number;
 }
 
@@ -115,12 +118,18 @@ export default function RoomPage() {
     fetch(`${apiBase}/api/rooms`)
       .then((res) => res.json())
       .then((data: RoomData[]) => {
-        const roomsWithUnread = data.map((r) => ({
+        const sorted = [...data].sort((a, b) => {
+          const timeA = new Date(a.last_message_at || a.created_at || 0).getTime();
+          const timeB = new Date(b.last_message_at || b.created_at || 0).getTime();
+          if (timeA !== timeB) return timeB - timeA;
+          return a.name.localeCompare(b.name);
+        });
+        const roomsWithUnread = sorted.map((r) => ({
           ...r,
           unread_count: r.id === roomId ? 0 : (r.unread_count || 0),
         }));
         setAllRooms(roomsWithUnread);
-        const current = data.find((r) => r.id === roomId);
+        const current = sorted.find((r) => r.id === roomId);
         if (current) setRoomInfo(current);
       })
       .catch((err) => console.error('Erro ao buscar salas:', err));
@@ -167,6 +176,29 @@ export default function RoomPage() {
   const handleSendVoiceNote = () => {
     sendMessage('🎤 Mensagem de Voz (0:14)');
   };
+
+  // Synchronize last message and activity of the current room in the sidebar
+  useEffect(() => {
+    if (messages.length === 0 || !roomId) return;
+    const lastMsg = messages[messages.length - 1];
+    setAllRooms((prev) => {
+      const idx = prev.findIndex((r) => r.id === roomId);
+      if (idx === -1) return prev;
+      const updated = {
+        ...prev[idx],
+        last_message: lastMsg.content,
+        last_message_at: lastMsg.created_at ? new Date(lastMsg.created_at).toISOString() : new Date().toISOString(),
+      };
+      const copy = [...prev];
+      copy[idx] = updated;
+      return copy.sort((a, b) => {
+        const timeA = new Date(a.last_message_at || a.created_at || 0).getTime();
+        const timeB = new Date(b.last_message_at || b.created_at || 0).getTime();
+        if (timeA !== timeB) return timeB - timeA;
+        return a.name.localeCompare(b.name);
+      });
+    });
+  }, [messages, roomId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -319,17 +351,24 @@ export default function RoomPage() {
   const handleSkipPhase = () => sendAction('game:skip_phase', {});
   const handleAbortGame = () => sendAction('game:abort', {});
 
-  // Filtered rooms
-  const filteredRooms = allRooms.filter((r) => {
-    const matchesSearch =
-      r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.code.toLowerCase().includes(searchQuery.toLowerCase());
-    if (!matchesSearch) return false;
+  // Filtered rooms with stable sorting
+  const filteredRooms = allRooms
+    .filter((r) => {
+      const matchesSearch =
+        r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.code.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!matchesSearch) return false;
 
-    if (activeTab === 'groups') return r.is_group;
-    if (activeTab === 'direct') return !r.is_group;
-    return true;
-  });
+      if (activeTab === 'groups') return r.is_group;
+      if (activeTab === 'direct') return !r.is_group;
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.last_message_at || a.created_at || 0).getTime();
+      const timeB = new Date(b.last_message_at || b.created_at || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      return a.name.localeCompare(b.name);
+    });
 
   // Start 1-on-1 direct conversation with contact
   const handleStartDirectChat = async (contact: Contact) => {
@@ -539,13 +578,13 @@ export default function RoomPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="font-bold text-sm text-ink-main truncate">{room.name}</span>
-                        <span className="text-[10px] text-gray-400 font-mono shrink-0 ml-1">
-                          {room.code}
+                        <span className="text-[10px] text-gray-400 font-medium shrink-0 ml-1">
+                          {room.last_message_at ? formatRelativeTime(room.last_message_at) : room.code}
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span className="truncate">
-                          {room.is_group ? 'Toque para conversar e jogar' : 'Conversa direta'}
+                        <span className="truncate max-w-[155px]">
+                          {room.last_message || (room.is_group ? 'Toque para conversar e jogar' : 'Conversa iniciada')}
                         </span>
                         {room.unread_count && room.unread_count > 0 ? (
                           <span className="px-1.5 py-0.5 rounded-full bg-brand-action text-white text-[10px] font-bold">

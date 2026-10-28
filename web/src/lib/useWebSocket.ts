@@ -34,10 +34,18 @@ export function useWebSocket({
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isClosingExplicitlyRef = useRef<boolean>(false);
+  const roomIdRef = useRef<string>(roomId);
+
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
 
   // Fetch message history whenever roomId changes
   useEffect(() => {
     if (!roomId) return;
+    setMessages([]);
+    setGameState(null);
+    setTypingUsers({});
     let isCancelled = false;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
 
@@ -83,6 +91,13 @@ export function useWebSocket({
 
       case 'chat:new_message': {
         const msg = envelope.payload as ChatMessage;
+        const currentRoom = roomIdRef.current;
+        if (envelope.room_id && currentRoom && envelope.room_id !== currentRoom) {
+          return;
+        }
+        if (msg.room_id && currentRoom && msg.room_id !== currentRoom) {
+          return;
+        }
         setMessages((prev) => {
           // Strictly deduplicate by message ID
           if (prev.some((m) => m.id === msg.id)) {
