@@ -70,7 +70,11 @@ func (s *RoomStore) SaveToDisk(filePath string) error {
 	}
 
 	_ = os.MkdirAll(filepath.Dir(filePath), 0755)
-	return os.WriteFile(filePath, bytes, 0644)
+	tmpPath := filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, bytes, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, filePath)
 }
 
 func (s *RoomStore) LoadFromDisk(filePath string) bool {
@@ -250,7 +254,6 @@ func (s *RoomStore) CreateRoom(name, code string, isGroup bool, members []string
 			CreatedAt: time.Now(),
 		},
 	}
-	s.mu.Unlock()
 	go func() { _ = s.SaveToDisk("data/chat_store.json") }()
 	return room
 }
@@ -270,6 +273,19 @@ func (s *RoomStore) GetMessages(roomID string, limit int) []*ChatMessage {
 		return msgs
 	}
 	return msgs[len(msgs)-limit:]
+}
+
+func (s *RoomStore) DeleteRoom(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.rooms[id]; !exists {
+		return false
+	}
+	delete(s.rooms, id)
+	delete(s.messages, id)
+	go func() { _ = s.SaveToDisk("data/chat_store.json") }()
+	return true
 }
 
 type ChatHandler struct {
@@ -339,4 +355,14 @@ func (h *ChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	msgs := h.Store.GetMessages(roomID, 50)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(msgs)
+}
+
+func (h *ChatHandler) DeleteRoom(w http.ResponseWriter, r *http.Request) {
+	roomID := chi.URLParam(r, "id")
+	if ok := h.Store.DeleteRoom(roomID); !ok {
+		http.Error(w, `{"error":"room not found"}`, http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "deleted_id": roomID})
 }

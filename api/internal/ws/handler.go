@@ -3,6 +3,7 @@ package ws
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/porchat/api/internal/auth"
@@ -35,7 +36,7 @@ func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing room_id parameter", http.StatusBadRequest)
 		return
 	}
-	if clientType == "" {
+	if clientType != "tv" && clientType != "mobile" {
 		clientType = "web"
 	}
 
@@ -59,6 +60,20 @@ func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unauthorized: valid token or nickname required", http.StatusUnauthorized)
 			return
 		}
+	}
+
+	// Nickname sanitization: remove tag brackets and clamp between 2 and 24 characters
+	nickname = strings.TrimSpace(nickname)
+	nickname = strings.ReplaceAll(nickname, "<", "")
+	nickname = strings.ReplaceAll(nickname, ">", "")
+	runes := []rune(nickname)
+	if len(runes) > 24 {
+		runes = runes[:24]
+	}
+	if len(runes) < 2 {
+		nickname = "Player"
+	} else {
+		nickname = string(runes)
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)

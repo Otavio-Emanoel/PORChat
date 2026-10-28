@@ -167,6 +167,9 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 		}
 		if err := json.Unmarshal(env.Payload, &p); err == nil && p.Content != "" {
 			trimmed := strings.TrimSpace(p.Content)
+			if trimmed == "" {
+				return
+			}
 			if trimmed == "/bots" {
 				if h.engineGetter != nil {
 					if eng := h.engineGetter(c.RoomID); eng != nil {
@@ -176,12 +179,19 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 				return
 			}
 
+			// Clamp message length to 1000 characters to prevent payload flooding
+			runes := []rune(trimmed)
+			if len(runes) > 1000 {
+				runes = runes[:1000]
+			}
+			sanitizedContent := string(runes)
+
 			chatMsg := &chat.ChatMessage{
 				ID:        uuid.New().String(),
 				RoomID:    c.RoomID,
 				UserID:    c.UserID,
 				Nickname:  c.Nickname,
-				Content:   p.Content,
+				Content:   sanitizedContent,
 				Type:      "text",
 				CreatedAt: time.Now(),
 			}
@@ -314,5 +324,36 @@ func (h *Hub) sendToClient(c *Client, env *Envelope) {
 	select {
 	case c.Send <- bytes:
 	default:
+	}
+}
+
+func (h *Hub) BroadcastRoomDeleted(roomID string) {
+	if env, err := NewEnvelope("sys:room_deleted", roomID, map[string]interface{}{"room_id": roomID}); err == nil {
+		h.BroadcastToRoom(roomID, env)
+	}
+}
+
+func (h *Hub) GetStats() map[string]interface{} {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	activeRooms := 0
+	totalConns := 0
+	uniqueUsers := make(map[string]bool)
+
+	for _, clients := range h.rooms {
+		if len(clients) > 0 {
+			activeRooms++
+			for cl := range clients {
+				totalConns++
+				uniqueUsers[cl.UserID] = true
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"active_rooms":      activeRooms,
+		"total_connections": totalConns,
+		"unique_online":     len(uniqueUsers),
 	}
 }

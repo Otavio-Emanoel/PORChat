@@ -67,7 +67,11 @@ func (s *UserStore) SaveToDisk(filePath string) error {
 	}
 
 	_ = os.MkdirAll(filepath.Dir(filePath), 0755)
-	return os.WriteFile(filePath, bytes, 0644)
+	tmpPath := filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, bytes, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, filePath)
 }
 
 func (s *UserStore) LoadFromDisk(filePath string) bool {
@@ -167,7 +171,6 @@ func (s *UserStore) CreateUser(nickname, email, password string) (*User, error) 
 	}
 	s.users[emailNorm] = u
 	s.byID[u.ID] = u
-	s.mu.Unlock()
 	go func() { _ = s.SaveToDisk("data/user_store.json") }()
 	return u, nil
 }
