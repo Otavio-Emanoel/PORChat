@@ -283,3 +283,43 @@ export interface BotsTogglePayload {
 export interface BotsStatusPayload {
   active_bots: string[];
 }
+
+// -------------------------------------------------------------
+// System Metrics, Search & Audio Preferences
+// -------------------------------------------------------------
+
+export interface SystemStats {
+  active_rooms: number;
+  total_connections: number;
+  unique_online: number;
+  uptime_seconds: number;
+  total_registered_users: number;
+  total_rooms: number;
+  status: string;
+}
+
+export interface MessageSearchParams {
+  query: string;
+  sender_id?: string;
+  limit?: number;
+}
+
+export interface SearchResult {
+  matches: ChatMessage[];
+  total_found: number;
+}
+
+export interface AudioSettings {
+  volume: number; // 0.0 to 1.0
+  muted: boolean;
+  sfx_enabled: boolean;
+}
+
+export interface SysRoomDeletedPayload {
+  room_id: string;
+}
+
+export interface SysRoomUpdatedPayload {
+  room: Room;
+}
+
