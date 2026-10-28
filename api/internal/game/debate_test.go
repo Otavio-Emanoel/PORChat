@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/porchat/api/internal/chat"
 	"github.com/porchat/api/internal/ws"
@@ -11,6 +12,7 @@ import (
 func setupTestHub() *ws.Hub {
 	store := chat.NewRoomStore()
 	hub := ws.NewHub(store)
+	go hub.Run()
 	return hub
 }
 
@@ -130,5 +132,46 @@ func TestDebateEngine_CuratedTopicBank(t *testing.T) {
 	}
 	if engine.state.SideALabel == "" || engine.state.SideBLabel == "" {
 		t.Errorf("Expected side labels to be populated")
+	}
+}
+
+func TestDebateEngine_MatchmakingFromOnlineUsers(t *testing.T) {
+	hub := setupTestHub()
+	roomID := "test-matchmaking"
+	engine := NewDebateEngine(roomID, hub)
+
+	// Simulate connected candidates via registration
+	c1 := &ws.Client{UserID: "u-alice", Nickname: "Alice", RoomID: roomID, ClientType: "web", Send: make(chan []byte, 10)}
+	c2 := &ws.Client{UserID: "u-bob", Nickname: "Bob", RoomID: roomID, ClientType: "mobile", Send: make(chan []byte, 10)}
+	cTV := &ws.Client{UserID: "u-tv", Nickname: "TV", RoomID: roomID, ClientType: "tv", Send: make(chan []byte, 10)}
+	cJuror := &ws.Client{UserID: "u-juror", Nickname: "Juror1", RoomID: roomID, ClientType: "web", Send: make(chan []byte, 10)}
+
+	hub.Register <- c1
+	hub.Register <- c2
+	hub.Register <- cTV
+	hub.Register <- cJuror
+
+	// Give hub a moment to process registrations
+	time.Sleep(20 * time.Millisecond)
+
+	startPayload, _ := json.Marshal(map[string]interface{}{
+		"game_type": "debate",
+	})
+	engine.HandleAction(c1, &ws.Envelope{
+		Event:   "game:start",
+		RoomID:  roomID,
+		Payload: startPayload,
+	})
+
+	if engine.state.DebaterA == nil || engine.state.DebaterB == nil {
+		t.Fatalf("Expected both debaters to be assigned")
+	}
+
+	// Debater A and B should be distinct candidates and not TV
+	if engine.state.DebaterA.ID == engine.state.DebaterB.ID {
+		t.Errorf("Expected Debater A and B to be distinct, got both %s", engine.state.DebaterA.ID)
+	}
+	if engine.state.DebaterA.ID == "u-tv" || engine.state.DebaterB.ID == "u-tv" {
+		t.Errorf("TV client should not be selected as a debater")
 	}
 }

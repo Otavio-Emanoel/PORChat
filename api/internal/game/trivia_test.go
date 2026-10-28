@@ -85,3 +85,73 @@ func TestTriviaEngine_StartAndScore(t *testing.T) {
 		t.Errorf("Expected engine to be resumed")
 	}
 }
+
+func TestTriviaEngine_StreakMultiplierAndReset(t *testing.T) {
+	hub := setupTestHub()
+	engine := NewTriviaEngine("test-room-streak", hub)
+	client := &ws.Client{UserID: "u-streak", Nickname: "StreakMaster", RoomID: "test-room-streak"}
+
+	// Start quiz
+	startPayload, _ := json.Marshal(map[string]interface{}{"game_type": "quiz"})
+	engine.HandleAction(client, &ws.Envelope{Event: "game:start", RoomID: "test-room-streak", Payload: startPayload})
+
+	engine.mu.Lock()
+	engine.phase = QuizPhaseQuestion
+	engine.questionStartedAt = time.Now()
+	q := engine.questions[0]
+	engine.state.CurrentQuestion = &q
+	correctOption := q.CorrectOption
+	var wrongOption string
+	for opt := range q.Options {
+		if opt != correctOption {
+			wrongOption = opt
+			break
+		}
+	}
+	engine.mu.Unlock()
+
+	// 1st Correct Answer -> Streak 1, 1.0x
+	ans1, _ := json.Marshal(map[string]interface{}{"choice": correctOption})
+	engine.HandleAction(client, &ws.Envelope{Event: "quiz:submit_answer", RoomID: "test-room-streak", Payload: ans1})
+	entry := engine.userScores["u-streak"]
+	if entry.Streak != 1 || entry.StreakMultiplier != 1.0 {
+		t.Errorf("Expected Streak 1, mult 1.0, got %d, %f", entry.Streak, entry.StreakMultiplier)
+	}
+
+	// 2nd Correct Answer -> Streak 2, 1.25x
+	engine.mu.Lock()
+	engine.answeredUsers = make(map[string]bool) // simulate next question
+	engine.mu.Unlock()
+	engine.HandleAction(client, &ws.Envelope{Event: "quiz:submit_answer", RoomID: "test-room-streak", Payload: ans1})
+	if entry.Streak != 2 || entry.StreakMultiplier != 1.25 {
+		t.Errorf("Expected Streak 2, mult 1.25, got %d, %f", entry.Streak, entry.StreakMultiplier)
+	}
+
+	// 3rd Correct Answer -> Streak 3, 1.5x
+	engine.mu.Lock()
+	engine.answeredUsers = make(map[string]bool)
+	engine.mu.Unlock()
+	engine.HandleAction(client, &ws.Envelope{Event: "quiz:submit_answer", RoomID: "test-room-streak", Payload: ans1})
+	if entry.Streak != 3 || entry.StreakMultiplier != 1.5 {
+		t.Errorf("Expected Streak 3, mult 1.5, got %d, %f", entry.Streak, entry.StreakMultiplier)
+	}
+
+	// 4th Correct Answer -> Streak 4, 2.0x (cap)
+	engine.mu.Lock()
+	engine.answeredUsers = make(map[string]bool)
+	engine.mu.Unlock()
+	engine.HandleAction(client, &ws.Envelope{Event: "quiz:submit_answer", RoomID: "test-room-streak", Payload: ans1})
+	if entry.Streak != 4 || entry.StreakMultiplier != 2.0 {
+		t.Errorf("Expected Streak 4, mult 2.0, got %d, %f", entry.Streak, entry.StreakMultiplier)
+	}
+
+	// 5th Incorrect Answer -> Streak resets to 0, 1.0x
+	engine.mu.Lock()
+	engine.answeredUsers = make(map[string]bool)
+	engine.mu.Unlock()
+	ansWrong, _ := json.Marshal(map[string]interface{}{"choice": wrongOption})
+	engine.HandleAction(client, &ws.Envelope{Event: "quiz:submit_answer", RoomID: "test-room-streak", Payload: ansWrong})
+	if entry.Streak != 0 || entry.StreakMultiplier != 1.0 {
+		t.Errorf("Expected Streak 0, mult 1.0 after wrong answer, got %d, %f", entry.Streak, entry.StreakMultiplier)
+	}
+}
