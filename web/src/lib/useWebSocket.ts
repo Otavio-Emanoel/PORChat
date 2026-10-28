@@ -25,6 +25,7 @@ export function useWebSocket({
   clientType = 'web',
 }: UseWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
+  const [latency, setLatency] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<Array<{ id: string; nickname: string }>>([]);
   const [gameState, setGameState] = useState<GameStateUpdatePayload | null>(null);
@@ -122,6 +123,32 @@ export function useWebSocket({
           }
           return next;
         });
+        break;
+      }
+
+      case 'chat:reaction': {
+        const p = envelope.payload as {
+          message_id: string;
+          emoji: string;
+          user_id?: string;
+          reactions: Record<string, string[]>;
+        };
+        if (p && p.message_id) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === p.message_id ? { ...m, reactions: p.reactions } : m
+            )
+          );
+        }
+        break;
+      }
+
+      case 'sys:pong': {
+        const p = envelope.payload as { client_time: number; server_time: number };
+        if (p && p.client_time) {
+          const rtt = Date.now() - p.client_time;
+          setLatency(Math.max(1, Math.round(rtt)));
+        }
         break;
       }
 
@@ -267,9 +294,31 @@ export function useWebSocket({
     socketRef.current.send(JSON.stringify(envelope));
   };
 
+  // Heartbeat ping to measure latency (Item 77)
+  useEffect(() => {
+    if (!isConnected) return;
+    const sendPing = () => {
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        socketRef.current.send(
+          JSON.stringify({
+            event: 'sys:ping',
+            room_id: roomId,
+            timestamp: Date.now(),
+            payload: { client_time: Date.now() },
+          })
+        );
+      }
+    };
+    sendPing();
+    const interval = setInterval(sendPing, 15000);
+    return () => clearInterval(interval);
+  }, [isConnected, roomId]);
+
   return {
     isConnected,
+    latency,
     messages,
+    setMessages,
     onlineUsers,
     gameState,
     typingUsers,
@@ -278,3 +327,4 @@ export function useWebSocket({
     sendAction,
   };
 }
+

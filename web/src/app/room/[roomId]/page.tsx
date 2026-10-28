@@ -7,6 +7,10 @@ import { getStoredUser, clearStoredSession, type User } from '@/lib/auth';
 import { CreateGroupModal } from '@/components/CreateGroupModal';
 import { ProfileModal } from '@/components/ProfileModal';
 import { InChatGameCard } from '@/components/InChatGameCard';
+import { CommandPalette } from '@/components/CommandPalette';
+import { MessageHoverBar, MessageReactionPills } from '@/components/MessageReactions';
+import { PinnedBanner } from '@/components/PinnedBanner';
+import { AudioWaveformBubble } from '@/components/AudioWaveformBubble';
 import {
   MessageSquare,
   Tv,
@@ -20,6 +24,7 @@ import {
   Plus,
   Search,
   Smile,
+  Mic,
   Pause,
   Play,
   SkipForward,
@@ -74,6 +79,8 @@ export default function RoomPage() {
   const [nowTick, setNowTick] = useState(Date.now());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -127,6 +134,7 @@ export default function RoomPage() {
 
   const {
     isConnected,
+    latency,
     messages,
     onlineUsers,
     gameState,
@@ -139,6 +147,26 @@ export default function RoomPage() {
     nickname,
     clientType: 'web',
   });
+
+  // Global Command Palette Shortcut (Cmd+K / Ctrl+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleMessageReaction = (messageId: string, emoji: string) => {
+    sendAction('chat:reaction', { message_id: messageId, emoji });
+  };
+
+  const handleSendVoiceNote = () => {
+    sendMessage('🎤 Mensagem de Voz (0:14)');
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -601,12 +629,30 @@ export default function RoomPage() {
                     ? `${onlineUsers.length} online • ${roomInfo?.members?.join(', ') || 'Pedro, Otavio, Raul'}`
                     : `${onlineUsers.length} participante online`}
                 </span>
+                {latency !== null && (
+                  <span
+                    className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/50 hidden sm:inline"
+                    title="Latência WebSocket com o servidor"
+                  >
+                    {latency}ms
+                  </span>
+                )}
               </div>
             </div>
           </div>
 
           {/* Header Action Buttons (Start Games, Host Moderation, Search, TV Mode & Room Menu) */}
           <div className="flex items-center gap-2">
+            {/* Command Palette Trigger */}
+            <button
+              type="button"
+              onClick={() => setIsCommandPaletteOpen(true)}
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white hover:bg-gray-100 text-ink-muted border border-gray-200 text-xs font-mono font-bold transition-all shadow-2xs tactile-btn"
+              title="Abrir Command Palette (Cmd+K ou Ctrl+K)"
+            >
+              <kbd className="text-[10px] bg-gray-100 px-1 py-0.5 rounded border border-gray-200">⌘K</kbd>
+            </button>
+
             {/* Search messages toggle (Item 21) */}
             <button
               type="button"
@@ -805,6 +851,17 @@ export default function RoomPage() {
           </div>
         )}
 
+        {/* Pinned Room Announcement Banner (Item 53) */}
+        <PinnedBanner
+          title="Aviso da Sala"
+          content={
+            roomInfo?.name
+              ? `Bem-vindo ao grupo ${roomInfo.name}! Converse e dispute no telão.`
+              : 'Converse, dispute debates e quizzes com sincronia em tempo real.'
+          }
+          roomCode={roomInfo?.code}
+        />
+
         {/* Message Feed (WhatsApp Bubbles) */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3">
           {displayedMessages.length === 0 ? (
@@ -825,10 +882,11 @@ export default function RoomPage() {
             displayedMessages.map((msg) => {
               const isMe = msg.nickname === nickname;
               const isSystem = msg.type === 'system';
+              const isVoice = msg.content.startsWith('🎤 Mensagem de Voz');
 
               if (isSystem) {
                 return (
-                  <div key={msg.id} className="flex justify-center my-2">
+                  <div key={msg.id} className="flex justify-center my-2 animate-message-in">
                     <span className="px-3 py-1 rounded-full bg-white/80 backdrop-blur-xs text-gray-600 text-[11px] font-medium shadow-2xs border border-gray-200/50">
                       ✨ {msg.content}
                     </span>
@@ -837,36 +895,68 @@ export default function RoomPage() {
               }
 
               return (
-                <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                <div
+                  key={msg.id}
+                  onMouseEnter={() => setHoveredMessageId(msg.id)}
+                  onMouseLeave={() => setHoveredMessageId(null)}
+                  className={`group relative flex flex-col ${
+                    isMe ? 'items-end' : 'items-start'
+                  } animate-message-in`}
+                >
                   {!isMe && (
                     <span className="text-[11px] font-bold text-brand-primary ml-2 mb-0.5">
                       {msg.nickname}
                     </span>
                   )}
+
+                  {/* Quick Telegram-style Hover Reaction Bar (Item 50) */}
+                  {hoveredMessageId === msg.id && (
+                    <MessageHoverBar
+                      messageId={msg.id}
+                      onReact={(emoji) => handleMessageReaction(msg.id, emoji)}
+                      isCurrentUser={isMe}
+                    />
+                  )}
+
                   <div
-                    className={`max-w-md px-3.5 py-2 rounded-2xl text-sm leading-relaxed shadow-xs relative ${
+                    className={`max-w-md px-3.5 py-2 rounded-2xl text-sm leading-relaxed shadow-xs relative transition-all ${
                       isMe
                         ? 'bg-[#E7FFDB] text-ink-main rounded-tr-none border border-emerald-200/40'
                         : 'bg-white text-ink-main rounded-tl-none border border-gray-200/70'
                     }`}
                   >
-                    <span>{msg.content}</span>
+                    {isVoice ? (
+                      <AudioWaveformBubble durationSeconds={14} isCurrentUser={isMe} />
+                    ) : (
+                      <span>{msg.content}</span>
+                    )}
+
                     <div className="flex items-center gap-1 float-right ml-3 mt-1 text-[10px] text-gray-400 font-mono">
                       <span>{formatRelativeTime(msg.created_at)}</span>
-                      {/* Double Checkmark (Item 9) */}
+                      {/* Morphing SVG Double Checkmark (Item 59) */}
                       {isMe && (
-                        <span className="text-brand-primary text-xs font-bold leading-none" title="Entregue">
-                          ✓✓
+                        <span className="text-brand-primary" title="Entregue">
+                          <svg className="w-3.5 h-3.5 inline" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M12.354 4.354a.5.5 0 0 0-.708-.708L5 10.293 1.854 7.146a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l7-7zm-3 0a.5.5 0 0 0-.708-.708L5 7.293 3.854 6.146a.5.5 0 1 0-.708.708l1.5 1.5a.5.5 0 0 0 .708 0l4-4z"/>
+                          </svg>
                         </span>
                       )}
                     </div>
                   </div>
+
+                  {/* Aggregated Reaction Badges (Item 51) */}
+                  <MessageReactionPills
+                    reactions={msg.reactions}
+                    currentUserId={nickname}
+                    onToggleReaction={(emoji) => handleMessageReaction(msg.id, emoji)}
+                    isCurrentUser={isMe}
+                  />
                 </div>
               );
             })
           )}
 
-          {/* Typing Indicator (Item 8) */}
+          {/* Typing Indicator (Item 58) */}
           {Object.keys(typingUsers).length > 0 && (
             <div className="space-y-1.5 animate-pop-in">
               {Object.values(typingUsers).map((u) => (
@@ -906,15 +996,23 @@ export default function RoomPage() {
           </div>
         </div>
 
-        {/* Message Input Footer */}
-        <footer className="p-3 bg-[#F0F2F5] border-t border-gray-200">
+        {/* Floating Frosted Glass Message Input Dock (Item 54) */}
+        <footer className="p-3 bg-white/80 backdrop-blur-md border-t border-gray-200/80">
           <form onSubmit={handleSend} className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSendVoiceNote}
+              className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center"
+              title="Gravar Áudio de Voz"
+            >
+              <Mic className="w-4 h-4" />
+            </button>
             <input
               type="text"
               value={inputText}
               onChange={handleInputChange}
-              placeholder="Digite uma mensagem..."
-              className="flex-1 px-4 py-2.5 rounded-2xl bg-white border border-gray-200 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary transition-all"
+              placeholder="Digite uma mensagem ou /bots..."
+              className="flex-1 px-4 py-2.5 rounded-2xl bg-gray-50/90 border border-gray-200 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary focus:bg-white transition-all"
             />
             <button
               type="submit"
@@ -926,6 +1024,16 @@ export default function RoomPage() {
           </form>
         </footer>
       </main>
+
+      {/* Linear-Style Command Palette (Item 48) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        roomId={roomId}
+        roomCode={roomInfo?.code}
+        onStartDebate={handleStartDebate}
+        onStartQuiz={handleStartQuiz}
+      />
 
       {/* Create Group Modal */}
       <CreateGroupModal
