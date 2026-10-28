@@ -30,9 +30,10 @@ type ChatMessage struct {
 	RoomID    string    `json:"room_id"`
 	UserID    string    `json:"user_id"`
 	Nickname  string    `json:"nickname"`
-	Content   string    `json:"content"`
-	Type      string    `json:"type"` // "text", "game_card", "system"
-	CreatedAt time.Time `json:"created_at"`
+	Content   string                 `json:"content"`
+	Type      string                 `json:"type"` // "text", "game_card", "system"
+	Reactions map[string][]string    `json:"reactions,omitempty"`
+	CreatedAt time.Time              `json:"created_at"`
 }
 
 type RoomStore struct {
@@ -263,6 +264,42 @@ func (s *RoomStore) AddMessage(msg *ChatMessage) {
 	s.messages[msg.RoomID] = append(s.messages[msg.RoomID], msg)
 	s.mu.Unlock()
 	go func() { _ = s.SaveToDisk("data/chat_store.json") }()
+}
+
+func (s *RoomStore) ToggleReaction(roomID, messageID, emoji, userID string) (map[string][]string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	msgs := s.messages[roomID]
+	for _, m := range msgs {
+		if m.ID == messageID {
+			if m.Reactions == nil {
+				m.Reactions = make(map[string][]string)
+			}
+			users := m.Reactions[emoji]
+			alreadyReacted := false
+			newUsers := make([]string, 0, len(users))
+			for _, u := range users {
+				if u == userID {
+					alreadyReacted = true
+				} else {
+					newUsers = append(newUsers, u)
+				}
+			}
+			if alreadyReacted {
+				if len(newUsers) == 0 {
+					delete(m.Reactions, emoji)
+				} else {
+					m.Reactions[emoji] = newUsers
+				}
+			} else {
+				m.Reactions[emoji] = append(users, userID)
+			}
+			go func() { _ = s.SaveToDisk("data/chat_store.json") }()
+			return m.Reactions, true
+		}
+	}
+	return nil, false
 }
 
 func (s *RoomStore) GetMessages(roomID string, limit int) []*ChatMessage {

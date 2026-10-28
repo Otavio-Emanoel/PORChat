@@ -59,6 +59,7 @@ export interface ChatMessage {
   type: 'text' | 'game_card' | 'system';
   created_at: string;
   status?: MessageStatus;
+  reactions?: Record<string, string[]>;
   game_data?: {
     game_type: 'debate' | 'quiz';
     topic?: string;
@@ -114,6 +115,15 @@ export interface SysErrorPayload {
   message: string;
 }
 
+export interface ClientPingPayload {
+  client_time: number;
+}
+
+export interface ServerPongPayload {
+  client_time: number;
+  server_time: number;
+}
+
 // -------------------------------------------------------------
 // Chat Payloads
 // -------------------------------------------------------------
@@ -126,6 +136,13 @@ export interface ChatTypingPayload {
   user_id: string;
   nickname: string;
   is_typing: boolean;
+}
+
+export interface ChatReactionPayload {
+  message_id: string;
+  emoji: string;
+  user_id?: string;
+  reactions?: Record<string, string[]>;
 }
 
 export interface ChatNewMessagePayload extends ChatMessage {}

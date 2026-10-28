@@ -150,3 +150,50 @@ func TestRoomStore_PersistenceRoundtrip(t *testing.T) {
 		t.Errorf("Expected at least 2 messages loaded, got %d", len(msgs))
 	}
 }
+
+func TestRoomStore_ToggleReaction(t *testing.T) {
+	store := &RoomStore{
+		rooms:    make(map[string]*Room),
+		messages: make(map[string][]*ChatMessage),
+	}
+
+	room := store.CreateRoom("Reaction Room", "RCT-1234", true, nil, "system")
+	msg := &ChatMessage{
+		ID:        "msg-reaction-1",
+		RoomID:    room.ID,
+		UserID:    "user-1",
+		Nickname:  "Tester",
+		Content:   "Awesome game!",
+		Type:      "text",
+		CreatedAt: time.Now(),
+	}
+	store.AddMessage(msg)
+
+	// Add reaction
+	reactions, ok := store.ToggleReaction(room.ID, "msg-reaction-1", "🔥", "user-1")
+	if !ok {
+		t.Fatalf("ToggleReaction failed to add reaction")
+	}
+	if len(reactions["🔥"]) != 1 || reactions["🔥"][0] != "user-1" {
+		t.Errorf("Expected 1 reaction from user-1, got %v", reactions["🔥"])
+	}
+
+	// Add second user reaction
+	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "🔥", "user-2")
+	if !ok || len(reactions["🔥"]) != 2 {
+		t.Errorf("Expected 2 reactions for 🔥, got %v", reactions["🔥"])
+	}
+
+	// Remove user-1 reaction (toggle off)
+	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "🔥", "user-1")
+	if !ok || len(reactions["🔥"]) != 1 || reactions["🔥"][0] != "user-2" {
+		t.Errorf("Expected only user-2 left after toggle, got %v", reactions["🔥"])
+	}
+
+	// Remove user-2 reaction -> key should be deleted
+	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "🔥", "user-2")
+	if !ok || len(reactions["🔥"]) != 0 {
+		t.Errorf("Expected empty reactions for 🔥, got %v", reactions["🔥"])
+	}
+}
+

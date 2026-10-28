@@ -217,6 +217,39 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 			}
 		}
 
+	case "chat:reaction":
+		var p struct {
+			MessageID string `json:"message_id"`
+			Emoji     string `json:"emoji"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.MessageID != "" && p.Emoji != "" {
+			reactions, ok := h.chatStore.ToggleReaction(c.RoomID, p.MessageID, p.Emoji, c.UserID)
+			if ok {
+				payload := map[string]interface{}{
+					"message_id": p.MessageID,
+					"emoji":      p.Emoji,
+					"user_id":    c.UserID,
+					"reactions":  reactions,
+				}
+				if outEnv, err := NewEnvelope("chat:reaction", c.RoomID, payload); err == nil {
+					h.BroadcastToRoom(c.RoomID, outEnv)
+				}
+			}
+		}
+
+	case "sys:ping":
+		var p struct {
+			ClientTime int64 `json:"client_time"`
+		}
+		_ = json.Unmarshal(env.Payload, &p)
+		pongPayload := map[string]interface{}{
+			"client_time": p.ClientTime,
+			"server_time": time.Now().UnixMilli(),
+		}
+		if outEnv, err := NewEnvelope("sys:pong", c.RoomID, pongPayload); err == nil {
+			h.sendToClient(c, outEnv)
+		}
+
 	case "game:start", "game:pause", "game:resume", "game:skip_phase", "game:abort",
 		"debate:submit_argument", "debate:cast_vote", "debate:reaction",
 		"quiz:submit_answer", "bots:toggle", "game:bots_spawn":
