@@ -420,7 +420,23 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     return (
       <View style={[styles.messageWrapper, isMe ? styles.myMessageWrapper : styles.otherMessageWrapper]}>
         {!isMe && <Text style={styles.senderName}>{item.nickname}</Text>}
-        <View style={[styles.bubble, isMe ? styles.myBubble : styles.otherBubble]}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onLongPress={() => {
+            Alert.alert(
+              'Reagir à mensagem',
+              item.content.length > 50 ? `${item.content.slice(0, 50)}...` : item.content,
+              [
+                { text: '❤️ Coração', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: '❤️' }) },
+                { text: '🔥 Fogo', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: '🔥' }) },
+                { text: '😂 Risada', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: '😂' }) },
+                { text: '👑 Coroa', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: '👑' }) },
+                { text: 'Cancelar', style: 'cancel' },
+              ]
+            );
+          }}
+          style={[styles.bubble, isMe ? styles.myBubble : styles.otherBubble]}
+        >
           <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.otherMessageText]}>
             {item.content}
           </Text>
@@ -430,7 +446,26 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             </Text>
             {isMe && <Text style={styles.checkMarkText}> ✓✓</Text>}
           </View>
-        </View>
+        </TouchableOpacity>
+
+        {/* Reaction Badges on Message (Item 51) */}
+        {item.reactions && Object.keys(item.reactions).length > 0 && (
+          <View style={[styles.reactionPillsRow, isMe ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
+            {Object.entries(item.reactions).map(([emoji, users]) => (
+              <TouchableOpacity
+                key={emoji}
+                style={[
+                  styles.reactionPill,
+                  users.includes(nickname) && styles.reactionPillActive,
+                ]}
+                onPress={() => sendAction('chat:reaction', { message_id: item.id, emoji })}
+              >
+                <Text style={styles.reactionPillEmoji}>{emoji}</Text>
+                <Text style={styles.reactionPillCount}>{users.length}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
     );
   };
@@ -939,6 +974,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           contentContainerStyle={styles.messageList}
+          ListEmptyComponent={
+            <View style={styles.emptyMessagesContainer}>
+              <Text style={styles.emptyMessagesEmoji}>💬</Text>
+              <Text style={styles.emptyMessagesTitle}>Nenhuma mensagem ainda</Text>
+              <Text style={styles.emptyMessagesSubtitle}>
+                Envie uma mensagem abaixo ou inicie um jogo no botão acima!
+              </Text>
+            </View>
+          }
           ListFooterComponent={
             Object.keys(typingUsers).length > 0 ? (
               <View style={styles.typingRow}>
@@ -1664,4 +1708,56 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
+  reactionPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  reactionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#F1F3F5',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  reactionPillActive: {
+    backgroundColor: '#EDE9FE',
+    borderColor: '#C4B5FD',
+  },
+  reactionPillEmoji: {
+    fontSize: 11,
+  },
+  reactionPillCount: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#4B5563',
+  },
+  emptyMessagesContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    marginTop: 60,
+  },
+  emptyMessagesEmoji: {
+    fontSize: 40,
+    marginBottom: 10,
+  },
+  emptyMessagesTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#2D3436',
+    marginBottom: 4,
+  },
+  emptyMessagesSubtitle: {
+    fontSize: 12,
+    color: '#868E96',
+    textAlign: 'center',
+    maxWidth: 240,
+  },
 });
+
