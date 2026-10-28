@@ -33,3 +33,6 @@ test:
 	cd shared && npm run typecheck
 	cd web && npm run typecheck
 	cd mobile && npm run typecheck
+
+audit-ports:
+	./scripts/audit_ports.sh
