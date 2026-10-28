@@ -108,10 +108,9 @@ export default function RoomPage() {
     fetch(`${apiBase}/api/rooms`)
       .then((res) => res.json())
       .then((data: RoomData[]) => {
-        // Add mock unread counters for demo liveliness
-        const roomsWithUnread = data.map((r, i) => ({
+        const roomsWithUnread = data.map((r) => ({
           ...r,
-          unread_count: r.id === roomId ? 0 : i === 1 ? 2 : 0,
+          unread_count: r.id === roomId ? 0 : (r.unread_count || 0),
         }));
         setAllRooms(roomsWithUnread);
         const current = data.find((r) => r.id === roomId);

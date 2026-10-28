@@ -182,18 +182,21 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* Quick links to seed rooms */}
-              <div className="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-                <span className="font-semibold">Salas de Demonstração:</span>
+              {/* Quick links to active rooms */}
+              <div className="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
+                <span className="font-semibold text-ink-main flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-brand-reward" />
+                  Salas Populares da Galera:
+                </span>
                 <div className="flex flex-wrap gap-2">
                   {rooms.slice(0, 3).map((r) => (
                     <button
                       key={r.id}
                       type="button"
                       onClick={() => router.push(`/room/${r.id}`)}
-                      className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-brand-primary/10 hover:text-brand-primary font-mono font-bold transition-colors"
+                      className="px-2.5 py-1 rounded-xl bg-gray-100/80 hover:bg-brand-primary/10 hover:text-brand-primary font-mono font-bold text-xs transition-all border border-gray-200/50 hover:border-brand-primary/20 shadow-xs"
                     >
-                      {r.code}
+                      {r.name.length > 18 ? r.code : r.name}
                     </button>
                   ))}
                 </div>
@@ -449,8 +452,9 @@ export default function LandingPage() {
             <Link href="/tv" className="hover:text-white transition-colors">Telão TV</Link>
           </div>
 
-          <div className="text-center sm:text-right">
-            <span>Server-Authoritative Go Engine & Next.js Client</span>
+          <div className="flex items-center gap-2 text-center sm:text-right">
+            <span className="w-2 h-2 rounded-full bg-brand-mint animate-pulse" />
+            <span className="font-mono text-white/70">v2.4 Pro • Pedro, Otávio & Raul</span>
           </div>
         </div>
       </footer>

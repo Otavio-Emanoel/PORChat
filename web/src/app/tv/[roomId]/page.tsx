@@ -14,7 +14,9 @@ import {
   Crown,
   Zap,
   CheckCircle2,
-  Bot,
+  Share2,
+  Copy,
+  Check,
   Volume2,
   VolumeX,
   Maximize2,
@@ -41,7 +43,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
   const { roomId } = params;
   const [particles, setParticles] = useState<Particle[]>([]);
   const [volume, setVolume] = useState(80);
-  const [botsActive, setBotsActive] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [originUrl, setOriginUrl] = useState('');
@@ -75,10 +77,14 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
   const sideAPercent = totalVotes > 0 ? Math.round((sideAVotes / totalVotes) * 100) : 50;
   const sideBPercent = totalVotes > 0 ? 100 - sideAPercent : 50;
 
-  // Toggle demo bots
-  const handleToggleBots = () => {
-    setBotsActive((prev) => !prev);
-    sendAction('bots:toggle', {});
+  // Copy Stage Invitation Link
+  const handleCopyLink = () => {
+    const link = originUrl || (typeof window !== 'undefined' ? `${window.location.origin}/room/${roomId}` : '');
+    if (link && navigator.clipboard) {
+      navigator.clipboard.writeText(link);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
   };
 
   // TV Volume & Mute control (Item 24)
@@ -247,17 +253,17 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
           </button>
 
-          {/* Demo Bots Toggle */}
+          {/* Share/Copy Room Link Button */}
           <button
-            onClick={handleToggleBots}
+            onClick={handleCopyLink}
             className={`hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all tactile-btn ${
-              botsActive
-                ? 'bg-brand-reward text-ink-main shadow-lg shadow-brand-reward/20'
+              copiedLink
+                ? 'bg-brand-mint text-ink-main shadow-lg shadow-brand-mint/20'
                 : 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
             }`}
           >
-            <Bot size={16} />
-            <span>{botsActive ? '5 Bots Ativos' : 'Simular Bots'}</span>
+            {copiedLink ? <Check size={16} /> : <Share2 size={16} />}
+            <span>{copiedLink ? 'Link Copiado!' : 'Compartilhar'}</span>
           </button>
 
           {/* Connected Jurors / Audience Spectator Counter (Item 25) */}
@@ -297,11 +303,11 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
               </p>
               <div className="pt-2 flex flex-wrap gap-3">
                 <button
-                  onClick={handleToggleBots}
+                  onClick={handleCopyLink}
                   className="px-4 py-2.5 rounded-2xl bg-brand-primary text-white text-xs font-bold flex items-center gap-2 tactile-btn hover:brightness-110 shadow-lg shadow-brand-primary/30"
                 >
-                  <Bot size={16} />
-                  <span>{botsActive ? 'Parar Bots' : 'Popular com Bots para Demo'}</span>
+                  {copiedLink ? <Check size={16} /> : <Copy size={16} />}
+                  <span>{copiedLink ? 'Link do Telão Copiado!' : 'Copiar Link de Entrada'}</span>
                 </button>
               </div>
             </div>
