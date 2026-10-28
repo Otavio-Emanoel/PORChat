@@ -26,6 +26,9 @@ interface RoomItem {
   is_group: boolean;
   members?: string[];
   created_by?: string;
+  created_at?: string;
+  last_message?: string;
+  last_message_at?: string;
 }
 
 interface ContactItem {
@@ -117,8 +120,14 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
       if (roomsRes.ok) {
         const roomsData: RoomItem[] = await roomsRes.json();
-        setRoomList(roomsData);
-        const current = roomsData.find((r) => r.id === roomId);
+        const sorted = [...roomsData].sort((a, b) => {
+          const timeA = new Date(a.last_message_at || a.created_at || 0).getTime();
+          const timeB = new Date(b.last_message_at || b.created_at || 0).getTime();
+          if (timeA !== timeB) return timeB - timeA;
+          return a.name.localeCompare(b.name);
+        });
+        setRoomList(sorted);
+        const current = sorted.find((r) => r.id === roomId);
         if (current) setCurrentRoomInfo(current);
       }
 
@@ -149,6 +158,29 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       }, 100);
     }
   }, [messages.length]);
+
+  // Synchronize active room last message with roomList preview
+  useEffect(() => {
+    if (messages.length === 0 || !roomId) return;
+    const lastMsg = messages[messages.length - 1];
+    setRoomList((prev) => {
+      const idx = prev.findIndex((r) => r.id === roomId);
+      if (idx === -1) return prev;
+      const updated = {
+        ...prev[idx],
+        last_message: lastMsg.content,
+        last_message_at: lastMsg.created_at ? new Date(lastMsg.created_at).toISOString() : new Date().toISOString(),
+      };
+      const copy = [...prev];
+      copy[idx] = updated;
+      return copy.sort((a, b) => {
+        const timeA = new Date(a.last_message_at || a.created_at || 0).getTime();
+        const timeB = new Date(b.last_message_at || b.created_at || 0).getTime();
+        if (timeA !== timeB) return timeB - timeA;
+        return a.name.localeCompare(b.name);
+      });
+    });
+  }, [messages, roomId]);
 
   // Pulse effect when a game is active
   const isGameActive = gameState && gameState.phase !== 'CHAT';
@@ -388,16 +420,23 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     });
   };
 
-  // Filtered Items for List
-  const filteredRooms = roomList.filter((r) => {
-    const matchesSearch =
-      r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.code.toLowerCase().includes(searchQuery.toLowerCase());
-    if (!matchesSearch) return false;
-    if (activeTab === 'groups') return r.is_group;
-    if (activeTab === 'all') return true;
-    return false;
-  });
+  // Filtered Items for List with stable activity sorting
+  const filteredRooms = roomList
+    .filter((r) => {
+      const matchesSearch =
+        r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.code.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!matchesSearch) return false;
+      if (activeTab === 'groups') return r.is_group;
+      if (activeTab === 'all') return true;
+      return false;
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.last_message_at || a.created_at || 0).getTime();
+      const timeB = new Date(b.last_message_at || b.created_at || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      return a.name.localeCompare(b.name);
+    });
 
   const filteredContacts = contacts.filter((c) =>
     c.nickname.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -639,9 +678,10 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                       <Text style={styles.chatCodeBadge}>{item.code}</Text>
                     </View>
                     <Text style={styles.chatPreview} numberOfLines={1}>
-                      {isGroup
-                        ? `👥 ${item.members?.length || 3} participantes • Toque para abrir`
-                        : '💬 Conversa direta • Toque para abrir'}
+                      {item.last_message ||
+                        (isGroup
+                          ? `👥 ${item.members?.length || 3} participantes • Toque para abrir`
+                          : '💬 Conversa direta • Toque para abrir')}
                     </Text>
                   </View>
                   <Text style={styles.chatArrow}>›</Text>

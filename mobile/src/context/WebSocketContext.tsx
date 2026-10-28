@@ -55,6 +55,11 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isClosingExplicitlyRef = useRef<boolean>(false);
+  const roomIdRef = useRef<string>(roomId);
+
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
 
   const connect = useCallback(() => {
     if (!roomId) return;
@@ -141,6 +146,13 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       case 'chat:new_message': {
         const msg = envelope.payload as ChatMessage;
+        const currentRoom = roomIdRef.current;
+        if (envelope.room_id && currentRoom && envelope.room_id !== currentRoom) {
+          return;
+        }
+        if (msg.room_id && currentRoom && msg.room_id !== currentRoom) {
+          return;
+        }
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) {
             return prev;
@@ -190,6 +202,10 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   useEffect(() => {
     // Reset and fetch message history for the selected room
+    if (!roomId) return;
+    setMessages([]);
+    setGameState(null);
+    setTypingUsers({});
     let isCancelled = false;
     const fetchHistory = async () => {
       try {
