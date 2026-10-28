@@ -5,6 +5,7 @@
 class SoundEffectsEngine {
   private ctx: AudioContext | null = null;
   private isMuted: boolean = false;
+  private masterVolume: number = 0.8;
 
   private initContext() {
     if (!this.ctx && typeof window !== 'undefined') {
@@ -16,6 +17,19 @@ class SoundEffectsEngine {
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
+  }
+
+  public setVolume(vol: number) {
+    this.masterVolume = Math.max(0, Math.min(1, vol));
+    if (this.masterVolume === 0) {
+      this.isMuted = true;
+    } else {
+      this.isMuted = false;
+    }
+  }
+
+  public getVolume(): number {
+    return this.isMuted ? 0 : this.masterVolume;
   }
 
   public setMuted(muted: boolean) {
@@ -46,7 +60,7 @@ class SoundEffectsEngine {
     osc.frequency.setValueAtTime(220, this.ctx.currentTime); // A3
     osc.frequency.exponentialRampToValueAtTime(110, this.ctx.currentTime + 1.2);
 
-    gain.gain.setValueAtTime(0.7, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.7 * this.masterVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.5);
 
     osc.connect(gain);
@@ -70,7 +84,7 @@ class SoundEffectsEngine {
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(800, this.ctx.currentTime);
 
-    gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.3 * this.masterVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.08);
 
     osc.connect(gain);
@@ -97,7 +111,7 @@ class SoundEffectsEngine {
       osc.frequency.setValueAtTime(freq, this.ctx!.currentTime + idx * 0.12);
 
       gain.gain.setValueAtTime(0, this.ctx!.currentTime + idx * 0.12);
-      gain.gain.linearRampToValueAtTime(0.4, this.ctx!.currentTime + idx * 0.12 + 0.04);
+      gain.gain.linearRampToValueAtTime(0.4 * this.masterVolume, this.ctx!.currentTime + idx * 0.12 + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx!.currentTime + idx * 0.12 + 0.8);
 
       osc.connect(gain);
@@ -123,7 +137,7 @@ class SoundEffectsEngine {
     osc.frequency.setValueAtTime(587.33, this.ctx.currentTime); // D5
     osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.1); // A5
 
-    gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.4 * this.masterVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
 
     osc.connect(gain);
@@ -148,7 +162,7 @@ class SoundEffectsEngine {
     osc.frequency.setValueAtTime(150, this.ctx.currentTime);
     osc.frequency.linearRampToValueAtTime(110, this.ctx.currentTime + 0.3);
 
-    gain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.35 * this.masterVolume, this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.35);
 
     osc.connect(gain);

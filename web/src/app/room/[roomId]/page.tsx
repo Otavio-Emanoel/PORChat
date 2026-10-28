@@ -25,6 +25,10 @@ import {
   SkipForward,
   XOctagon,
   Clock,
+  MoreVertical,
+  Trash2,
+  LogOut,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -63,6 +67,13 @@ export default function RoomPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // New polish & resiliency state (Items 21, 22, 26, 27, 28)
+  const [isSearchingMessages, setIsSearchingMessages] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [nowTick, setNowTick] = useState(Date.now());
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -187,11 +198,84 @@ export default function RoomPage() {
     });
   };
 
+  // Periodic tick for relative timestamps (every 30s)
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Global Keyboard shortcuts (Item 26)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsSearchingMessages(false);
+        setMessageSearchQuery('');
+        setIsRoomMenuOpen(false);
+        setIsProfileModalOpen(false);
+        setIsCreateGroupOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const formatRelativeTime = (isoString: string) => {
+    try {
+      const date = new Date(isoString);
+      const diffSec = Math.floor((nowTick - date.getTime()) / 1000);
+      if (diffSec < 15) return 'agora';
+      if (diffSec < 60) return `há ${diffSec}s`;
+      const diffMin = Math.floor(diffSec / 60);
+      if (diffMin < 60) return `há ${diffMin} min`;
+      const isToday = new Date().toDateString() === date.toDateString();
+      if (isToday) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return `${date.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } catch {
+      return '';
+    }
+  };
+
   const handleCopyInvite = () => {
     const inviteText = `${window.location.origin}/room/${roomId}`;
     navigator.clipboard.writeText(inviteText);
     setCopied(true);
+    showToast('🔗 Link da sala copiado para a área de transferência!');
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDeleteRoom = async () => {
+    if (!confirm('Deseja realmente excluir este grupo/conversa permanentemente?')) return;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+    try {
+      const res = await fetch(`${apiBase}/api/rooms/${roomId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('🗑️ Sala excluída com sucesso!');
+        const other = allRooms.find((r) => r.id !== roomId);
+        if (other) {
+          router.push(`/room/${other.id}`);
+        } else {
+          router.push('/');
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao excluir sala:', err);
+    }
+  };
+
+  const handleLeaveRoom = () => {
+    const other = allRooms.find((r) => r.id !== roomId);
+    if (other) {
+      router.push(`/room/${other.id}`);
+    } else {
+      router.push('/');
+    }
   };
 
   const handleReaction = (emoji: string) => {
@@ -250,6 +334,15 @@ export default function RoomPage() {
   };
 
   const isGameActive = gameState && gameState.phase !== 'CHAT';
+
+  const displayedMessages = messages.filter((m) => {
+    if (!messageSearchQuery.trim()) return true;
+    const query = messageSearchQuery.toLowerCase();
+    return (
+      m.content.toLowerCase().includes(query) ||
+      m.nickname.toLowerCase().includes(query)
+    );
+  });
 
   return (
     <div className="flex h-screen bg-[#F0F2F5] text-ink-main overflow-hidden font-body">
@@ -513,8 +606,25 @@ export default function RoomPage() {
             </div>
           </div>
 
-          {/* Header Action Buttons (Start Games, Host Moderation & TV Mode) */}
+          {/* Header Action Buttons (Start Games, Host Moderation, Search, TV Mode & Room Menu) */}
           <div className="flex items-center gap-2">
+            {/* Search messages toggle (Item 21) */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsSearchingMessages((prev) => !prev);
+                if (isSearchingMessages) setMessageSearchQuery('');
+              }}
+              title="Buscar mensagens nesta conversa"
+              className={`p-2 rounded-xl transition-all tactile-btn ${
+                isSearchingMessages
+                  ? 'bg-brand-primary text-white shadow-xs'
+                  : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+              }`}
+            >
+              <Search className="w-4 h-4" />
+            </button>
+
             {roomInfo?.is_group && (
               <>
                 {isGameActive ? (
@@ -589,8 +699,101 @@ export default function RoomPage() {
                 </Link>
               </>
             )}
+
+            {/* Room Options Dropdown (Item 28) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsRoomMenuOpen((prev) => !prev)}
+                className="p-2 rounded-xl bg-white hover:bg-gray-100 text-gray-600 border border-gray-200 transition-all tactile-btn"
+                title="Opções da Sala"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {isRoomMenuOpen && (
+                <div className="absolute right-0 top-11 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 p-1.5 z-50 animate-pop-in text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRoomMenuOpen(false);
+                      handleLeaveRoom();
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-gray-50 text-gray-700 transition-colors text-left"
+                  >
+                    <LogOut className="w-3.5 h-3.5 text-gray-400" />
+                    <span>Sair da Sala</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRoomMenuOpen(false);
+                      handleDeleteRoom();
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-red-50 text-red-600 transition-colors text-left"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    <span>Excluir Sala</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
+
+        {/* WebSocket Reconnection Status Banner (Item 23) */}
+        {!isConnected && (
+          <div className="bg-amber-500 text-white px-4 py-2 text-xs font-bold flex items-center justify-between shadow-md z-20 animate-pulse">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+              <span>Conexão perdida com o servidor. Reconectando automaticamente...</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-2.5 py-1 bg-white text-amber-700 rounded-lg text-[11px] font-bold hover:bg-amber-50 shadow-xs"
+            >
+              Reconectar agora
+            </button>
+          </div>
+        )}
+
+        {/* In-Chat Message Search Bar (Item 21) */}
+        {isSearchingMessages && (
+          <div className="px-4 py-2.5 bg-white border-b border-gray-200 flex items-center gap-2 shadow-xs z-20 animate-fade-in">
+            <Search className="w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={messageSearchQuery}
+              onChange={(e) => setMessageSearchQuery(e.target.value)}
+              placeholder="Filtrar mensagens ou participantes (Esc para fechar)..."
+              autoFocus
+              className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 text-xs text-ink-main focus:outline-none focus:border-brand-primary"
+            />
+            {messageSearchQuery && (
+              <span className="text-[11px] font-mono text-gray-400">
+                {displayedMessages.length} {displayedMessages.length === 1 ? 'encontrada' : 'encontradas'}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setIsSearchingMessages(false);
+                setMessageSearchQuery('');
+              }}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Floating Feedback Toast (Item 27) */}
+        {toastMessage && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-ink-main text-white px-4 py-2 rounded-2xl text-xs font-bold shadow-xl border border-white/10 flex items-center gap-2 animate-bounce">
+            <span>{toastMessage}</span>
+          </div>
+        )}
 
         {/* In-Chat Interactive Game Activity Card (Item 10) */}
         {isGameActive && (
@@ -605,18 +808,22 @@ export default function RoomPage() {
 
         {/* Message Feed (WhatsApp Bubbles) */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3">
-          {messages.length === 0 ? (
+          {displayedMessages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500">
               <div className="w-14 h-14 rounded-2xl bg-white text-brand-primary flex items-center justify-center mb-3 shadow-xs">
                 <MessageSquare className="w-7 h-7" />
               </div>
-              <h3 className="font-heading text-base font-bold text-ink-main">Nenhuma mensagem ainda</h3>
+              <h3 className="font-heading text-base font-bold text-ink-main">
+                {messageSearchQuery ? 'Nenhum resultado para a busca' : 'Nenhuma mensagem ainda'}
+              </h3>
               <p className="text-xs max-w-sm mt-1 text-gray-600">
-                Mande uma mensagem para começar a conversa ou inicie um jogo no grupo!
+                {messageSearchQuery
+                  ? 'Tente buscar com outras palavras-chave ou limpe a busca.'
+                  : 'Mande uma mensagem para começar a conversa ou inicie um jogo no grupo!'}
               </p>
             </div>
           ) : (
-            messages.map((msg) => {
+            displayedMessages.map((msg) => {
               const isMe = msg.nickname === nickname;
               const isSystem = msg.type === 'system';
 
@@ -646,12 +853,7 @@ export default function RoomPage() {
                   >
                     <span>{msg.content}</span>
                     <div className="flex items-center gap-1 float-right ml-3 mt-1 text-[10px] text-gray-400 font-mono">
-                      <span>
-                        {new Date(msg.created_at).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
+                      <span>{formatRelativeTime(msg.created_at)}</span>
                       {/* Double Checkmark (Item 9) */}
                       {isMe && (
                         <span className="text-brand-primary text-xs font-bold leading-none" title="Entregue">

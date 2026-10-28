@@ -40,6 +40,7 @@ const QUIZ_OPTION_COLORS: Record<'A' | 'B' | 'C' | 'D', { bg: string; border: st
 export default function TVModePage({ params }: { params: { roomId: string } }) {
   const { roomId } = params;
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [volume, setVolume] = useState(80);
   const [botsActive, setBotsActive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -80,13 +81,25 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
     sendAction('bots:toggle', {});
   };
 
-  // Toggle Mute (Item 14)
-  const handleToggleMute = () => {
-    const muted = soundEffects.toggleMute();
-    setIsMuted(muted);
+  // TV Volume & Mute control (Item 24)
+  const handleVolumeChange = (newVol: number) => {
+    setVolume(newVol);
+    soundEffects.setVolume(newVol / 100);
+    setIsMuted(newVol === 0);
   };
 
-  // Toggle Fullscreen (Item 18)
+  const handleToggleMute = () => {
+    if (isMuted) {
+      soundEffects.setVolume(volume > 0 ? volume / 100 : 0.8);
+      setIsMuted(false);
+      if (volume === 0) setVolume(80);
+    } else {
+      soundEffects.setVolume(0);
+      setIsMuted(true);
+    }
+  };
+
+  // Toggle Fullscreen
   const handleToggleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
@@ -97,7 +110,22 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
     }
   };
 
-  // Audio & Confetti Triggers on Phase Transitions (Item 14 & 17)
+  // Reaction burst particle animation (Item 25)
+  const triggerReactionBurst = (count: number = 18) => {
+    const emojis = ['🔥', '🎉', '👑', '⭐', '👏', '💥', '✨', '⚡'];
+    const newParticles: Particle[] = [];
+    for (let i = 0; i < count; i++) {
+      newParticles.push({
+        id: Date.now() + Math.random(),
+        emoji: emojis[Math.floor(Math.random() * emojis.length)],
+        left: Math.floor(Math.random() * 88) + 6,
+        size: Math.floor(Math.random() * 26) + 34,
+      });
+    }
+    setParticles((prev) => [...prev, ...newParticles]);
+  };
+
+  // Audio & Confetti Triggers on Phase Transitions
   useEffect(() => {
     if (prevPhaseRef.current !== phase) {
       if (phase === 'OPENING_ARGUMENTS' || phase === 'LOBBY') {
@@ -105,6 +133,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
       } else if (phase === 'RESULTS' || phase === 'FINAL_RESULTS') {
         soundEffects.playFanfare();
         launchConfetti(canvasRef.current, 5000);
+        triggerReactionBurst(24);
       }
       prevPhaseRef.current = phase;
     }
@@ -182,14 +211,32 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Audio Synthesizer Mute Toggle (Item 14) */}
-          <button
-            onClick={handleToggleMute}
-            className="p-2.5 rounded-2xl bg-white/10 hover:bg-white/15 text-white transition-all tactile-btn"
-            title={isMuted ? 'Ativar Efeitos Sonoros' : 'Mutar Áudio'}
-          >
-            {isMuted ? <VolumeX size={18} className="text-red-400" /> : <Volume2 size={18} className="text-brand-reward" />}
-          </button>
+          {/* TV Volume Slider Control (Item 24) */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/10 border border-white/10">
+            <button
+              onClick={handleToggleMute}
+              className="p-1 text-white hover:text-brand-reward transition-colors tactile-btn"
+              title={isMuted || volume === 0 ? 'Desmutar Áudio' : 'Mutar Áudio'}
+            >
+              {isMuted || volume === 0 ? (
+                <VolumeX size={18} className="text-red-400" />
+              ) : (
+                <Volume2 size={18} className="text-brand-reward" />
+              )}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={isMuted ? 0 : volume}
+              onChange={(e) => handleVolumeChange(Number(e.target.value))}
+              className="w-14 sm:w-20 accent-brand-reward h-1.5 bg-white/20 rounded-lg cursor-pointer"
+              title={`Volume: ${isMuted ? 0 : volume}%`}
+            />
+            <span className="font-mono text-[10px] text-white/70 w-6 text-right">
+              {isMuted ? '0%' : `${volume}%`}
+            </span>
+          </div>
 
           {/* Fullscreen API Toggle (Item 18) */}
           <button
@@ -213,10 +260,13 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             <span>{botsActive ? '5 Bots Ativos' : 'Simular Bots'}</span>
           </button>
 
-          {/* Connected Jurors / Audience */}
-          <div className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-white/5 border border-white/10 text-xs sm:text-sm">
-            <Users size={16} className="text-brand-mint" />
+          {/* Connected Jurors / Audience Spectator Counter (Item 25) */}
+          <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-white/10 border border-white/15 text-xs sm:text-sm text-white shadow-inner">
+            <Users size={16} className="text-brand-mint animate-pulse" />
             <span className="font-bold">{onlineUsers.length}</span>
+            <span className="text-[10px] uppercase font-mono text-white/60 hidden md:inline">
+              {onlineUsers.length === 1 ? 'espectador' : 'espectadores'}
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-brand-mint/15 text-brand-mint text-xs font-bold border border-brand-mint/20">
