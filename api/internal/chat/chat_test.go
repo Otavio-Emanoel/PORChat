@@ -197,3 +197,54 @@ func TestRoomStore_ToggleReaction(t *testing.T) {
 	}
 }
 
+func TestRoomStore_DeterministicOrderAndLastMessage(t *testing.T) {
+	store := &RoomStore{
+		rooms:    make(map[string]*Room),
+		messages: make(map[string][]*ChatMessage),
+	}
+
+	room1 := store.CreateRoom("Alpha Room", "ALP-1000", true, nil, "system")
+	time.Sleep(10 * time.Millisecond)
+	room2 := store.CreateRoom("Beta Room", "BET-2000", true, nil, "system")
+	time.Sleep(10 * time.Millisecond)
+	room3 := store.CreateRoom("Gamma Room", "GAM-3000", true, nil, "system")
+
+	// Initially, newest room is room3, then room2, then room1
+	roomsInitial := store.GetAllRooms()
+	if len(roomsInitial) != 3 {
+		t.Fatalf("Expected 3 rooms, got %d", len(roomsInitial))
+	}
+	if roomsInitial[0].ID != room3.ID || roomsInitial[1].ID != room2.ID || roomsInitial[2].ID != room1.ID {
+		t.Errorf("Expected order [Gamma, Beta, Alpha], got [%s, %s, %s]",
+			roomsInitial[0].Name, roomsInitial[1].Name, roomsInitial[2].Name)
+	}
+
+	// Verify order is 100% deterministic over 100 iterations (never random like raw map)
+	for i := 0; i < 100; i++ {
+		list := store.GetAllRooms()
+		if list[0].ID != room3.ID || list[1].ID != room2.ID || list[2].ID != room1.ID {
+			t.Fatalf("Iteration %d: non-deterministic ordering detected!", i)
+		}
+	}
+
+	// Now send a new message in Alpha (room1) -> Alpha should immediately jump to the top!
+	time.Sleep(10 * time.Millisecond)
+	store.AddMessage(&ChatMessage{
+		ID:        "msg-alpha-1",
+		RoomID:    room1.ID,
+		UserID:    "user1",
+		Nickname:  "Tester",
+		Content:   "New active message in Alpha",
+		Type:      "text",
+		CreatedAt: time.Now(),
+	})
+
+	roomsAfterMsg := store.GetAllRooms()
+	if roomsAfterMsg[0].ID != room1.ID {
+		t.Errorf("Expected Alpha (room1) to jump to top after new message, got %s", roomsAfterMsg[0].Name)
+	}
+	if roomsAfterMsg[0].LastMessage != "New active message in Alpha" {
+		t.Errorf("Expected LastMessage to be updated, got %s", roomsAfterMsg[0].LastMessage)
+	}
+}
+

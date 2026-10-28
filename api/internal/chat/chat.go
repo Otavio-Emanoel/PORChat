@@ -5,24 +5,27 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"os"
-	"path/filepath"
 )
 
 type Room struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Code      string    `json:"code"`
-	IsGroup   bool      `json:"is_group"`
-	Members   []string  `json:"members,omitempty"`
-	CreatedBy string    `json:"created_by,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Code          string    `json:"code"`
+	IsGroup       bool      `json:"is_group"`
+	Members       []string  `json:"members,omitempty"`
+	CreatedBy     string    `json:"created_by,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	LastMessage   string    `json:"last_message,omitempty"`
+	LastMessageAt time.Time `json:"last_message_at,omitempty"`
 }
 
 type ChatMessage struct {
@@ -154,29 +157,31 @@ func (s *RoomStore) seedRooms() {
 	for _, r := range defaultRooms {
 		s.rooms[r.ID] = r
 		if r.IsGroup {
-			s.messages[r.ID] = []*ChatMessage{
-				{
-					ID:        uuid.New().String(),
-					RoomID:    r.ID,
-					UserID:    "system",
-					Nickname:  "PORBot",
-					Content:   "Grupo criado! Inicie debates ou quizzes e acompanhe no telão.",
-					Type:      "system",
-					CreatedAt: time.Now().Add(-10 * time.Minute),
-				},
+			msg := &ChatMessage{
+				ID:        uuid.New().String(),
+				RoomID:    r.ID,
+				UserID:    "system",
+				Nickname:  "PORBot",
+				Content:   "Grupo criado! Inicie debates ou quizzes e acompanhe no telão.",
+				Type:      "system",
+				CreatedAt: time.Now().Add(-10 * time.Minute),
 			}
+			s.messages[r.ID] = []*ChatMessage{msg}
+			r.LastMessage = msg.Content
+			r.LastMessageAt = msg.CreatedAt
 		} else {
-			s.messages[r.ID] = []*ChatMessage{
-				{
-					ID:        uuid.New().String(),
-					RoomID:    r.ID,
-					UserID:    r.CreatedBy,
-					Nickname:  r.CreatedBy,
-					Content:   "Fala aí! Bora puxar um jogo com a galera no grupo?",
-					Type:      "text",
-					CreatedAt: time.Now().Add(-5 * time.Minute),
-				},
+			msg := &ChatMessage{
+				ID:        uuid.New().String(),
+				RoomID:    r.ID,
+				UserID:    r.CreatedBy,
+				Nickname:  r.CreatedBy,
+				Content:   "Fala aí! Bora puxar um jogo com a galera no grupo?",
+				Type:      "text",
+				CreatedAt: time.Now().Add(-5 * time.Minute),
 			}
+			s.messages[r.ID] = []*ChatMessage{msg}
+			r.LastMessage = msg.Content
+			r.LastMessageAt = msg.CreatedAt
 		}
 	}
 }
@@ -186,8 +191,34 @@ func (s *RoomStore) GetAllRooms() []*Room {
 	defer s.mu.RUnlock()
 	list := make([]*Room, 0, len(s.rooms))
 	for _, r := range s.rooms {
+		if r.LastMessage == "" {
+			if msgs := s.messages[r.ID]; len(msgs) > 0 {
+				lastMsg := msgs[len(msgs)-1]
+				r.LastMessage = lastMsg.Content
+				r.LastMessageAt = lastMsg.CreatedAt
+			}
+		}
 		list = append(list, r)
 	}
+
+	sort.SliceStable(list, func(i, j int) bool {
+		tI := list[i].LastMessageAt
+		if tI.IsZero() {
+			tI = list[i].CreatedAt
+		}
+		tJ := list[j].LastMessageAt
+		if tJ.IsZero() {
+			tJ = list[j].CreatedAt
+		}
+		if !tI.Equal(tJ) {
+			return tI.After(tJ)
+		}
+		if list[i].Name != list[j].Name {
+			return list[i].Name < list[j].Name
+		}
+		return list[i].ID < list[j].ID
+	})
+
 	return list
 }
 
@@ -228,22 +259,25 @@ func (s *RoomStore) CreateRoom(name, code string, isGroup bool, members []string
 		}
 	}
 
-	room := &Room{
-		ID:        uuid.New().String(),
-		Name:      cleanName,
-		Code:      cleanCode,
-		IsGroup:   isGroup,
-		Members:   members,
-		CreatedBy: createdBy,
-		CreatedAt: time.Now(),
-	}
-
-	s.rooms[room.ID] = room
 	welcomeText := "Grupo criado com sucesso! Convide amigos usando o código " + cleanCode + "."
 	if !isGroup {
 		welcomeText = "Conversa iniciada."
 	}
 
+	now := time.Now()
+	room := &Room{
+		ID:            uuid.New().String(),
+		Name:          cleanName,
+		Code:          cleanCode,
+		IsGroup:       isGroup,
+		Members:       members,
+		CreatedBy:     createdBy,
+		CreatedAt:     now,
+		LastMessage:   welcomeText,
+		LastMessageAt: now,
+	}
+
+	s.rooms[room.ID] = room
 	s.messages[room.ID] = []*ChatMessage{
 		{
 			ID:        uuid.New().String(),
@@ -252,7 +286,7 @@ func (s *RoomStore) CreateRoom(name, code string, isGroup bool, members []string
 			Nickname:  "PORBot",
 			Content:   welcomeText,
 			Type:      "system",
-			CreatedAt: time.Now(),
+			CreatedAt: now,
 		},
 	}
 	go func() { _ = s.SaveToDisk("data/chat_store.json") }()
@@ -262,6 +296,10 @@ func (s *RoomStore) CreateRoom(name, code string, isGroup bool, members []string
 func (s *RoomStore) AddMessage(msg *ChatMessage) {
 	s.mu.Lock()
 	s.messages[msg.RoomID] = append(s.messages[msg.RoomID], msg)
+	if r, ok := s.rooms[msg.RoomID]; ok {
+		r.LastMessage = msg.Content
+		r.LastMessageAt = msg.CreatedAt
+	}
 	s.mu.Unlock()
 	go func() { _ = s.SaveToDisk("data/chat_store.json") }()
 }
