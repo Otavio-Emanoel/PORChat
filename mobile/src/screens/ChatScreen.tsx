@@ -88,10 +88,23 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
   // Floating Emoji Particles in active chat
   const [particles, setParticles] = useState<FloatingParticle[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Animations
+  // Animations & Refs
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fabScaleAnim = useRef(new Animated.Value(1)).current;
+  const flatListRef = useRef<FlatList>(null);
+
+  // Deterministic avatar pastel color hash (Item 31)
+  const getAvatarBgColor = (idOrName: string) => {
+    const palette = ['#6C5CE7', '#FF7675', '#00CEC9', '#FDCB6E', '#A29BFE', '#E17055', '#0984E3', '#00B894'];
+    let hash = 0;
+    const str = idOrName || 'user';
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return palette[Math.abs(hash) % palette.length];
+  };
 
   // Fetch Rooms & Contacts
   const fetchData = async () => {
@@ -118,9 +131,24 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     }
   };
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchData();
+    setIsRefreshing(false);
+  };
+
   useEffect(() => {
     fetchData();
   }, [roomId, serverHost]);
+
+  // Auto-scroll to bottom on incoming messages (Item 30)
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [messages.length]);
 
   // Pulse effect when a game is active
   const isGameActive = gameState && gameState.phase !== 'CHAT';
@@ -413,6 +441,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   if (currentView === 'list') {
     return (
       <SafeAreaView style={styles.container}>
+        {/* Offline Status Banner (Item 32) */}
+        {!isConnected && (
+          <View style={styles.offlineBanner}>
+            <Text style={styles.offlineBannerText}>
+              ⚠️ Sem conexão com o servidor. Reconectando...
+            </Text>
+          </View>
+        )}
+
         {/* WhatsApp Top Brand Bar */}
         <View style={styles.waHeader}>
           <View style={styles.waBrandRow}>
@@ -491,19 +528,21 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           />
         </View>
 
-        {/* Content List */}
+        {/* Content List with Pull-to-Refresh (Item 29) & Avatar Colors (Item 31) */}
         {activeTab === 'contacts' ? (
           <FlatList
             data={filteredContacts}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={styles.chatListItem}
                 onPress={() => handleStartDirectChat(item)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.chatAvatar, { backgroundColor: colors.brand.primary }]}>
+                <View style={[styles.chatAvatar, { backgroundColor: getAvatarBgColor(item.id || item.nickname) }]}>
                   <Text style={styles.chatAvatarText}>
                     {item.nickname.slice(0, 2).toUpperCase()}
                   </Text>
@@ -536,6 +575,8 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             data={filteredRooms}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
             renderItem={({ item }) => {
               const isGroup = item.is_group;
               const isSelected = item.id === roomId;
@@ -548,7 +589,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                   <View
                     style={[
                       styles.chatAvatar,
-                      { backgroundColor: isGroup ? colors.brand.primary : colors.brand.mint },
+                      { backgroundColor: isGroup ? colors.brand.primary : getAvatarBgColor(item.id) },
                     ]}
                   >
                     <Text style={styles.chatAvatarText}>
@@ -790,6 +831,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Offline Status Banner (Item 32) */}
+      {!isConnected && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>
+            ⚠️ Sem conexão com o servidor. Reconectando...
+          </Text>
+        </View>
+      )}
+
       {/* Floating Reaction Particles Overlay */}
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         {particles.map((p) => (
@@ -866,6 +916,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               </TouchableOpacity>
             </Animated.View>
           )}
+
+          {/* Quick Leave Room Button (Item 36) */}
+          <TouchableOpacity
+            style={styles.leaveRoomIconBtn}
+            onPress={() => setCurrentView('list')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.leaveRoomIconText}>✕</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -875,6 +934,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         style={styles.chatArea}
       >
         <FlatList
+          ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
@@ -1577,5 +1637,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#666',
     fontStyle: 'italic',
+  },
+  offlineBanner: {
+    backgroundColor: '#F59E0B',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineBannerText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  leaveRoomIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#E9ECEF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  leaveRoomIconText: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });

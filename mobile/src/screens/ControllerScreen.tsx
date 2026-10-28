@@ -30,7 +30,10 @@ const QUICK_ARGUMENTS = [
   'Pense nas consequências lógicas...',
 ];
 
+let globalHapticsEnabled = true;
+
 const triggerHaptic = (type: 'tap' | 'success' | 'buzzer' = 'tap') => {
+  if (!globalHapticsEnabled) return;
   if (Platform.OS === 'web') {
     try {
       const nav = typeof globalThis !== 'undefined' ? (globalThis as any).navigator : null;
@@ -95,6 +98,11 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
   const [votedSide, setVotedSide] = useState<'side_a' | 'side_b' | null>(null);
   const [votedQuizChoice, setVotedQuizChoice] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
 
+  // Haptic feedback toggle (Item 33) & Speed progress indicator (Item 34)
+  const [hapticsOn, setHapticsOn] = useState(true);
+  const [answerTimeMs, setAnswerTimeMs] = useState<number | null>(null);
+  const questionStartRef = useRef<number>(Date.now());
+
   // Reaction Combo Multiplier (Item 21)
   const [comboCount, setComboCount] = useState(0);
   const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -109,6 +117,8 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
   useEffect(() => {
     if (phase === 'QUESTION') {
       setVotedQuizChoice(null);
+      setAnswerTimeMs(null);
+      questionStartRef.current = Date.now();
       triggerHaptic('buzzer');
     }
   }, [quiz?.current_question_index, phase]);
@@ -129,6 +139,8 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
 
   const handleQuizAnswer = (choice: 'A' | 'B' | 'C' | 'D') => {
     if (votedQuizChoice) return;
+    const elapsed = Date.now() - questionStartRef.current;
+    setAnswerTimeMs(elapsed);
     triggerHaptic('buzzer');
     setVotedQuizChoice(choice);
     submitQuizAnswer(choice);
@@ -160,8 +172,20 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
           <Text style={styles.backButtonText}>← Voltar ao Chat</Text>
         </TouchableOpacity>
-        <View style={styles.timerContainer}>
-          <Text style={styles.timerText}>{remaining}s</Text>
+        <View style={styles.topBarRight}>
+          <TouchableOpacity
+            style={[styles.hapticsBtn, !hapticsOn && styles.hapticsBtnOff]}
+            onPress={() => {
+              const next = !hapticsOn;
+              setHapticsOn(next);
+              globalHapticsEnabled = next;
+            }}
+          >
+            <Text style={styles.hapticsBtnText}>{hapticsOn ? '📳 Vibração' : '🔇 Mudo'}</Text>
+          </TouchableOpacity>
+          <View style={styles.timerContainer}>
+            <Text style={styles.timerText}>{remaining}s</Text>
+          </View>
         </View>
       </View>
 
@@ -177,6 +201,23 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
               : `"${debate?.topic || 'Abacaxi na pizza é crime ou alta gastronomia?'}"`}
           </Text>
         </View>
+
+        {/* Debate Role Banner (Item 35) */}
+        {!isQuiz && (
+          <View style={[styles.roleBanner, isDebater ? styles.roleBannerDebater : styles.roleBannerJuror]}>
+            <Text style={styles.roleBannerIcon}>{isDebater ? '⚔️' : '🏛️'}</Text>
+            <View style={styles.roleBannerTextCol}>
+              <Text style={styles.roleBannerTitle}>
+                {isDebater ? 'VOCÊ É DEBATEDOR' : 'VOCÊ É JURADO DA PLATÉIA'}
+              </Text>
+              <Text style={styles.roleBannerDesc}>
+                {isDebater
+                  ? 'Defenda sua tese! Digite ou envie argumentos rápidos antes do fim do tempo.'
+                  : 'Acompanhe as defesas no telão e vote no lado mais convincente quando a votação abrir!'}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* ==================================================================== */}
         {/* ======================== TRIVIA CONTROLLER ========================= */}
@@ -217,6 +258,30 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                     );
                   })}
                 </View>
+
+                {/* Speed Progress Indicator (Item 34) */}
+                {votedQuizChoice !== null && (
+                  <View style={styles.speedIndicatorCard}>
+                    <Text style={styles.speedIndicatorTitle}>
+                      ⚡ Resposta confirmada em {answerTimeMs !== null ? `${answerTimeMs}ms` : '< 1s'}
+                    </Text>
+                    <View style={styles.speedProgressBarBg}>
+                      <View
+                        style={[
+                          styles.speedProgressBarFill,
+                          {
+                            width: `${Math.max(10, Math.min(100, 100 - ((answerTimeMs || 800) / 15000) * 100))}%`,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.speedRatingText}>
+                      {(answerTimeMs || 800) < 2000
+                        ? 'Velocidade Relâmpago! 🚀 (Multiplicador de Pontos Ativo)'
+                        : 'Resposta enviada! Acompanhe a revelação no telão.'}
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -810,5 +875,92 @@ const styles = StyleSheet.create({
   },
   reactionEmoji: {
     fontSize: 22,
+  },
+  topBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  hapticsBtn: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  hapticsBtnOff: {
+    opacity: 0.5,
+  },
+  hapticsBtnText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  roleBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 16,
+    marginBottom: 12,
+    gap: 10,
+    borderWidth: 1,
+  },
+  roleBannerDebater: {
+    backgroundColor: 'rgba(255, 118, 117, 0.15)',
+    borderColor: 'rgba(255, 118, 117, 0.35)',
+  },
+  roleBannerJuror: {
+    backgroundColor: 'rgba(0, 206, 201, 0.15)',
+    borderColor: 'rgba(0, 206, 201, 0.35)',
+  },
+  roleBannerIcon: {
+    fontSize: 24,
+  },
+  roleBannerTextCol: {
+    flex: 1,
+  },
+  roleBannerTitle: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  roleBannerDesc: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  speedIndicatorCard: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    padding: 12,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  speedIndicatorTitle: {
+    color: colors.brand.reward,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+  speedProgressBarBg: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  speedProgressBarFill: {
+    height: '100%',
+    backgroundColor: colors.brand.reward,
+    borderRadius: 3,
+  },
+  speedRatingText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 10,
+    fontStyle: 'italic',
   },
 });
