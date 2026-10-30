@@ -13,7 +13,7 @@ export type QuizOptionKey = 'A' | 'B' | 'C' | 'D';
 
 export type DebateSide = 'side_a' | 'side_b';
 
-export type ReactionEmoji = '🔥' | '💀' | '🍅' | '👏' | '🤯' | '👑' | '🎯' | '🎉' | '⭐';
+export type ReactionEmoji = 'like' | 'heart' | 'smile' | 'star' | 'applause' | 'agree' | string;
 
 export interface User {
   id: string;
