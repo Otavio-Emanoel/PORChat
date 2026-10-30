@@ -459,7 +459,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     if (isSystem) {
       return (
         <View style={styles.systemMessageContainer}>
-          <Text style={styles.systemMessageText}>✨ {item.content}</Text>
+          <Text style={styles.systemMessageText}>🔒 {item.content}</Text>
         </View>
       );
     }
