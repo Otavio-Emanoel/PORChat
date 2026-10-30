@@ -44,7 +44,7 @@ const getDefaultHost = () => {
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roomId, setRoomId] = useState(DEFAULT_ROOM_ID);
-  const [nickname, setNickname] = useState('Otavio_Mobile');
+  const [nickname, setNickname] = useState('Otavio');
   const [serverHost, setServerHost] = useState(getDefaultHost);
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);

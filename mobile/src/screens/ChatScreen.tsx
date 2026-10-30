@@ -113,8 +113,9 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const fetchData = async () => {
     const host = serverHost.trim() || 'localhost:8081';
     try {
+      const userParam = encodeURIComponent(nickname);
       const [roomsRes, usersRes] = await Promise.all([
-        fetch(`http://${host}/api/rooms`),
+        fetch(`http://${host}/api/rooms?user=${userParam}`),
         fetch(`http://${host}/api/users`),
       ]);
 
@@ -133,7 +134,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
       if (usersRes.ok) {
         const usersData: ContactItem[] = await usersRes.json();
-        setContacts(usersData);
+        setContacts(usersData.filter((u) => u.nickname !== nickname));
       }
     } catch (e) {
       // Backend might be warming up
@@ -148,7 +149,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
   useEffect(() => {
     fetchData();
-  }, [roomId, serverHost]);
+  }, [roomId, serverHost, nickname]);
 
   // Auto-scroll to bottom on incoming messages (Item 30)
   useEffect(() => {
@@ -355,9 +356,16 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     try {
       const host = serverHost.trim() || 'localhost:8081';
       const clean = roomPin.trim().toUpperCase();
-      const res = await fetch(`http://${host}/api/rooms/code/${clean}`);
+      const res = await fetch(`http://${host}/api/rooms/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: clean,
+          user: nickname,
+        }),
+      });
       if (!res.ok) {
-        Alert.alert('Código Inválido', 'Nenhuma sala encontrada com este código.');
+        Alert.alert('Código Inválido', 'Nenhum grupo encontrado com este código.');
         return;
       }
       const room: RoomItem = await res.json();
@@ -793,9 +801,9 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Meu Perfil no PORChat</Text>
+              <Text style={styles.modalTitle}>🔒 Conta & Acesso Privado</Text>
               <Text style={styles.modalSubtitle}>
-                Selecione uma conta rápida ou altere seu apelido:
+                Selecione sua conta para acessar suas conversas e grupos privados:
               </Text>
 
               <View style={styles.demoButtonsRow}>
