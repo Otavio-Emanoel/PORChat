@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -206,11 +207,17 @@ func (s *UserStore) ListUsers() []*User {
 }
 
 type AuthHandler struct {
-	Store *UserStore
+	Store     *UserStore
+	Blacklist *TokenBlacklist
+	Tracker   *LoginAttemptsTracker
 }
 
 func NewAuthHandler(store *UserStore) *AuthHandler {
-	return &AuthHandler{Store: store}
+	return &AuthHandler{
+		Store:     store,
+		Blacklist: NewTokenBlacklist(),
+		Tracker:   NewLoginAttemptsTracker(5, 5*time.Minute, 15*time.Minute),
+	}
 }
 
 func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -265,15 +272,56 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.Store.GetByEmail(req.Email)
+	cleanEmail := strings.ToLower(strings.TrimSpace(req.Email))
+
+	// Check brute-force lockout
+	if locked, remaining := h.Tracker.IsLocked(cleanEmail); locked {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(remaining.Seconds())))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"error":"Account temporarily locked due to excessive failed attempts. Please retry in %d seconds."}`, int(remaining.Seconds()))))
+		return
+	}
+
+	user, err := h.Store.GetByEmail(cleanEmail)
 	if err != nil || !CheckPasswordHash(req.Password, user.PasswordHash) {
+		locked, duration := h.Tracker.RecordFailure(cleanEmail)
+		if locked {
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(duration.Seconds())))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"Too many failed attempts. Account locked for 15 minutes."}`))
+			return
+		}
+
 		http.Error(w, `{"error":"invalid email or password"}`, http.StatusUnauthorized)
 		return
 	}
 
+	// Login successful: reset failed attempt counter
+	h.Tracker.RecordSuccess(cleanEmail)
+
 	token, _ := GenerateJWT(user)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(AuthRes{User: user, Token: token})
+}
+
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	parts := strings.Split(authHeader, "Bearer ")
+	if len(parts) == 2 {
+		tokenStr := strings.TrimSpace(parts[1])
+		if claims, err := ValidateJWT(tokenStr); err == nil {
+			exp := time.Now().Add(24 * time.Hour)
+			if claims.ExpiresAt != nil {
+				exp = claims.ExpiresAt.Time
+			}
+			h.Blacklist.RevokeToken(tokenStr, exp)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"message":"logged out successfully"}`))
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
@@ -283,11 +331,25 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
-	claims, err := ValidateJWT(parts[1])
+	tokenStr := strings.TrimSpace(parts[1])
+
+	// Check token revocation
+	if h.Blacklist.IsTokenRevoked(tokenStr) {
+		http.Error(w, `{"error":"token has been revoked"}`, http.StatusUnauthorized)
+		return
+	}
+
+	claims, err := ValidateJWT(tokenStr)
 	if err != nil {
 		http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 		return
 	}
+
+	if claims.IssuedAt != nil && !h.Blacklist.IsUserTokenValid(claims.UserID, claims.IssuedAt.Time) {
+		http.Error(w, `{"error":"session invalidated by security policy"}`, http.StatusUnauthorized)
+		return
+	}
+
 	user, err := h.Store.GetByID(claims.UserID)
 	if err != nil {
 		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)

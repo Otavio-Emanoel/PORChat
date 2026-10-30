@@ -18,11 +18,22 @@ import (
 	"github.com/porchat/api/internal/auth"
 	"github.com/porchat/api/internal/chat"
 	"github.com/porchat/api/internal/game"
+	"github.com/porchat/api/internal/security"
 	"github.com/porchat/api/internal/ws"
 )
 
 func main() {
 	startTime := time.Now()
+
+	auditLogger := security.NewAuditLogger(1000, true)
+	defer auditLogger.Close()
+
+	originValidator := security.NewOriginValidator()
+	httpLimiter := security.NewRateLimiter(60.0, 120.0, 10*time.Minute)
+	defer httpLimiter.Close()
+
+	authLimiter := security.NewRateLimiter(5.0, 10.0, 5*time.Minute)
+	defer authLimiter.Close()
 
 	userStore := auth.NewUserStore()
 	authHandler := auth.NewAuthHandler(userStore)
@@ -39,6 +50,8 @@ func main() {
 	})
 
 	wsHandler := ws.NewWSHandler(hub, userStore)
+	wsHandler.AuditLogger = auditLogger
+	wsHandler.OriginValidator = originValidator
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -47,21 +60,29 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 
-	// Security Headers Middleware
+	// Global HTTP Rate Limiting
+	r.Use(security.HTTPRateLimitMiddleware(httpLimiter))
+
+	// CSRF / CSWSH Origin Validation for state-changing endpoints
+	r.Use(originValidator.OriginMiddleware)
+
+	// Hardened Security Headers Middleware
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Content-Type-Options", "nosniff")
-			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+			w.Header().Set("X-Frame-Options", "DENY")
 			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			w.Header().Set("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
 			next.ServeHTTP(w, r)
 		})
 	})
 
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   []string{"http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:8082", "http://127.0.0.1:8082", "http://localhost:8081", "https://porchat.app"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
+		ExposedHeaders:   []string{"Link", "Retry-After"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
@@ -82,10 +103,19 @@ func main() {
 		_ = json.NewEncoder(w).Encode(stats)
 	})
 
-	// Auth & Users routes
+	// Security audit log queries
+	r.Get("/api/system/audit", func(w http.ResponseWriter, r *http.Request) {
+		events := auditLogger.GetEvents(50, "")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(events)
+	})
+
+	// Auth & Users routes with brute-force defense
 	r.Route("/api/auth", func(r chi.Router) {
+		r.Use(security.CustomRateLimitMiddleware(authLimiter, "auth"))
 		r.Post("/register", authHandler.Register)
 		r.Post("/login", authHandler.Login)
+		r.Post("/logout", authHandler.Logout)
 		r.Get("/me", authHandler.Me)
 	})
 	r.Get("/api/users", authHandler.ListUsers)
@@ -101,6 +131,7 @@ func main() {
 			roomID := chi.URLParam(r, "id")
 			chatHandler.DeleteRoom(w, r)
 			hub.BroadcastRoomDeleted(roomID)
+			auditLogger.Log(security.EventRoomDelete, security.SeverityWarn, security.ExtractClientIP(r), "", roomID, "Room deleted via API", nil)
 		})
 		r.Get("/{id}/messages", chatHandler.GetMessages)
 	})
