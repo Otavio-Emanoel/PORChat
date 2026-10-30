@@ -131,12 +131,12 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
 
   // Reaction burst particle animation (Item 25)
   const triggerReactionBurst = (count: number = 18) => {
-    const emojis = ['🔥', '🎉', '👑', '⭐', '👏', '💥', '✨', '⚡'];
+    const symbols = ['+', '★', '●', '▲', '◆'];
     const newParticles: Particle[] = [];
     for (let i = 0; i < count; i++) {
       newParticles.push({
         id: Date.now() + Math.random(),
-        emoji: emojis[Math.floor(Math.random() * emojis.length)],
+        emoji: symbols[Math.floor(Math.random() * symbols.length)],
         left: Math.floor(Math.random() * 88) + 6,
         size: Math.floor(Math.random() * 26) + 34,
       });
@@ -179,10 +179,8 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
 
     if (phase === 'RESULTS' || phase === 'FINAL_RESULTS') {
       const interval = setInterval(() => {
-        handleReaction('🎉');
-        handleReaction('👑');
-        handleReaction('⭐');
-      }, 500);
+        handleReaction('Voto Registrado');
+      }, 800);
       return () => clearInterval(interval);
     }
   }, [phase]);
@@ -392,7 +390,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             {phase === 'LOBBY' && (
               <div className="w-full max-w-3xl bg-white/5 border border-white/10 rounded-3xl p-8 md:p-10 backdrop-blur-md shadow-2xl text-center">
                 <h2 className="text-2xl sm:text-4xl md:text-5xl font-black mb-3 text-brand-reward">
-                  ⚡ Preparem seus Celulares!
+                  Preparem seus Celulares!
                 </h2>
                 <p className="text-base sm:text-lg text-white/80 font-body">
                   O Quiz Relâmpago vai começar em {remaining} segundos! Quanto mais rápido você responder corretamente, mais pontos acumulará com multiplicadores de streak!
@@ -480,7 +478,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                         <span className="text-lg sm:text-xl font-bold text-white">{entry.nickname}</span>
                         {entry.streak && entry.streak > 1 ? (
                           <span className="px-2 py-0.5 rounded-md bg-brand-action/20 text-brand-action text-[11px] font-bold">
-                            🔥 {entry.streak}x Streak
+                            {entry.streak}x Streak
                           </span>
                         ) : null}
                       </div>
@@ -503,7 +501,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                   <Crown size={48} className="text-brand-reward animate-bounce" />
                 </div>
                 <h3 className="text-3xl sm:text-5xl font-black text-brand-reward mb-1">
-                  🏆 CAMPEÕES DO QUIZ!
+                  CAMPEÕES DO QUIZ!
                 </h3>
                 <p className="text-base sm:text-xl font-bold text-white mb-8">
                   Parabéns aos maiores conhecedores da rodada!
@@ -531,7 +529,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                   {quizState?.leaderboard?.[0] && (
                     <div className="flex flex-col items-center">
                       <span className="text-base sm:text-xl font-black text-brand-reward mb-1">
-                        👑 {quizState.leaderboard[0].nickname}
+                        {quizState.leaderboard[0].nickname}
                       </span>
                       <span className="text-sm font-mono text-brand-reward font-bold mb-2">
                         {quizState.leaderboard[0].total_score} pts
@@ -611,7 +609,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             {/* Topic Card */}
             <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 mb-6 backdrop-blur-md shadow-2xl text-center">
               <span className="text-xs font-mono uppercase text-brand-reward tracking-widest block mb-1">
-                ⚖️ TEMA DA DISPUTA
+                TEMA DA DISPUTA
               </span>
               <h2 className="text-xl sm:text-3xl md:text-4xl font-black leading-snug">
                 "{debateState?.topic || 'Abacaxi na pizza é crime ou alta gastronomia?'}"
@@ -626,10 +624,10 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                 </div>
                 <h3 className="text-3xl sm:text-5xl font-black text-brand-reward mb-2">
                   {debateState?.winner_side === 'side_a'
-                    ? '🎉 LADO CORAL É O VENCEDOR!'
+                    ? 'LADO CORAL É O VENCEDOR!'
                     : debateState?.winner_side === 'side_b'
-                    ? '🎉 LADO MENTA É O VENCEDOR!'
-                    : '🤝 EMPATE HISTÓRICO!'}
+                    ? 'LADO MENTA É O VENCEDOR!'
+                    : 'EMPATE ENTRE OS DEBATEDORES!'}
                 </h3>
                 <p className="text-white/80 font-body text-base sm:text-lg mb-6">
                   {debateState?.winner_side === 'side_a'
@@ -650,13 +648,13 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                 <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-5 shadow-xl">
                   <div className="flex justify-between font-mono font-bold text-xs sm:text-sm px-2 mb-2">
                     <span className="text-brand-action flex items-center gap-1.5">
-                      <span>🥊 {debateState?.side_a_label || 'Lado Coral'}</span>
+                      <span>{debateState?.side_a_label || 'Lado Coral'}</span>
                       <span>({sideAPercent}%)</span>
                     </span>
                     <span className="text-white/50">{totalVotes} votos dos jurados</span>
                     <span className="text-brand-mint flex items-center gap-1.5">
                       <span>({sideBPercent}%)</span>
-                      <span>{debateState?.side_b_label || 'Lado Menta'} 🛡️</span>
+                      <span>{debateState?.side_b_label || 'Lado Menta'}</span>
                     </span>
                   </div>
 
@@ -669,10 +667,10 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                       {sideAPercent > 15 && `${sideAVotes} votos`}
                     </div>
                     {/* Rope Knot Indicator */}
-                    <div className="absolute top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white shadow-md border-2 border-brand-reward flex items-center justify-center text-xs font-black text-ink-main pointer-events-none transition-all duration-500"
+                    <div className="absolute top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white shadow-md border-2 border-brand-reward flex items-center justify-center text-[10px] font-black text-ink-main pointer-events-none transition-all duration-500"
                       style={{ left: `calc(${sideAPercent}% - 12px)` }}
                     >
-                      ⚔️
+                      VS
                     </div>
                     <div
                       className="bg-brand-mint h-full transition-all duration-500 rounded-r-full flex items-center justify-end pr-3 text-[10px] font-black text-ink-main"
