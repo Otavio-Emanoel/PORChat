@@ -94,6 +94,7 @@ func main() {
 	r.Route("/api/rooms", func(r chi.Router) {
 		r.Get("/", chatHandler.ListRooms)
 		r.Post("/", chatHandler.CreateRoom)
+		r.Post("/join", chatHandler.JoinRoom)
 		r.Get("/code/{code}", chatHandler.GetRoomByCode)
 		r.Get("/{id}", chatHandler.GetRoom)
 		r.Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/porchat/api/internal/auth"
 )
 
 type Room struct {
@@ -222,6 +223,90 @@ func (s *RoomStore) GetAllRooms() []*Room {
 	return list
 }
 
+func (s *RoomStore) GetRoomsForUser(userIdentifier string) []*Room {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	userClean := strings.ToLower(strings.TrimSpace(userIdentifier))
+	list := make([]*Room, 0)
+	for _, r := range s.rooms {
+		isMember := strings.ToLower(strings.TrimSpace(r.CreatedBy)) == userClean
+		if !isMember {
+			for _, m := range r.Members {
+				if strings.ToLower(strings.TrimSpace(m)) == userClean {
+					isMember = true
+					break
+				}
+			}
+		}
+
+		if isMember {
+			if r.LastMessage == "" {
+				if msgs := s.messages[r.ID]; len(msgs) > 0 {
+					lastMsg := msgs[len(msgs)-1]
+					r.LastMessage = lastMsg.Content
+					r.LastMessageAt = lastMsg.CreatedAt
+				}
+			}
+			list = append(list, r)
+		}
+	}
+
+	sort.SliceStable(list, func(i, j int) bool {
+		tI := list[i].LastMessageAt
+		if tI.IsZero() {
+			tI = list[i].CreatedAt
+		}
+		tJ := list[j].LastMessageAt
+		if tJ.IsZero() {
+			tJ = list[j].CreatedAt
+		}
+		if !tI.Equal(tJ) {
+			return tI.After(tJ)
+		}
+		if list[i].Name != list[j].Name {
+			return list[i].Name < list[j].Name
+		}
+		return list[i].ID < list[j].ID
+	})
+
+	return list
+}
+
+func (s *RoomStore) JoinRoom(roomIDOrCode, userIdentifier string) (*Room, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var target *Room
+	cleanCode := strings.ToUpper(strings.TrimSpace(roomIDOrCode))
+	for _, r := range s.rooms {
+		if r.ID == roomIDOrCode || strings.ToUpper(strings.TrimSpace(r.Code)) == cleanCode {
+			target = r
+			break
+		}
+	}
+	if target == nil {
+		return nil, false
+	}
+
+	userClean := strings.TrimSpace(userIdentifier)
+	if userClean != "" {
+		alreadyMember := false
+		for _, m := range target.Members {
+			if strings.EqualFold(m, userClean) {
+				alreadyMember = true
+				break
+			}
+		}
+		if !alreadyMember {
+			target.Members = append(target.Members, userClean)
+			go func() { _ = s.SaveToDisk("data/chat_store.json") }()
+		}
+	}
+
+	return target, true
+}
+
 func (s *RoomStore) GetRoom(id string) (*Room, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -259,6 +344,33 @@ func (s *RoomStore) CreateRoom(name, code string, isGroup bool, members []string
 		}
 	}
 
+	cleanCreatedBy := strings.TrimSpace(createdBy)
+	if cleanCreatedBy != "" {
+		hasCreator := false
+		for _, m := range members {
+			if strings.EqualFold(m, cleanCreatedBy) {
+				hasCreator = true
+				break
+			}
+		}
+		if !hasCreator {
+			members = append(members, cleanCreatedBy)
+		}
+	}
+
+	// De-duplicate 1-on-1 direct conversations between two users
+	if !isGroup && len(members) == 2 {
+		for _, r := range s.rooms {
+			if !r.IsGroup && len(r.Members) == 2 {
+				m0Match := strings.EqualFold(r.Members[0], members[0]) || strings.EqualFold(r.Members[0], members[1])
+				m1Match := strings.EqualFold(r.Members[1], members[0]) || strings.EqualFold(r.Members[1], members[1])
+				if m0Match && m1Match {
+					return r
+				}
+			}
+		}
+	}
+
 	welcomeText := "Grupo criado com sucesso! Convide amigos usando o código " + cleanCode + "."
 	if !isGroup {
 		welcomeText = "Conversa iniciada."
@@ -271,7 +383,7 @@ func (s *RoomStore) CreateRoom(name, code string, isGroup bool, members []string
 		Code:          cleanCode,
 		IsGroup:       isGroup,
 		Members:       members,
-		CreatedBy:     createdBy,
+		CreatedBy:     cleanCreatedBy,
 		CreatedAt:     now,
 		LastMessage:   welcomeText,
 		LastMessageAt: now,
@@ -371,8 +483,27 @@ func NewChatHandler(store *RoomStore) *ChatHandler {
 	return &ChatHandler{Store: store}
 }
 
+func (h *ChatHandler) extractUser(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		if claims, err := auth.ValidateJWT(token); err == nil && claims.Nickname != "" {
+			return claims.Nickname
+		}
+	}
+	if userParam := strings.TrimSpace(r.URL.Query().Get("user")); userParam != "" {
+		return userParam
+	}
+	return ""
+}
+
 func (h *ChatHandler) ListRooms(w http.ResponseWriter, r *http.Request) {
-	rooms := h.Store.GetAllRooms()
+	user := h.extractUser(r)
+	if user == "" {
+		http.Error(w, `{"error":"Acesso privado. Entre com sua conta para acessar suas conversas e grupos."}`, http.StatusUnauthorized)
+		return
+	}
+	rooms := h.Store.GetRoomsForUser(user)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(rooms)
 }
@@ -384,6 +515,22 @@ func (h *ChatHandler) GetRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"room not found"}`, http.StatusNotFound)
 		return
 	}
+	user := h.extractUser(r)
+	if user != "" {
+		hasAccess := strings.EqualFold(room.CreatedBy, user)
+		if !hasAccess {
+			for _, m := range room.Members {
+				if strings.EqualFold(m, user) {
+					hasAccess = true
+					break
+				}
+			}
+		}
+		if !hasAccess {
+			http.Error(w, `{"error":"Acesso negado a esta conversa privada"}`, http.StatusForbidden)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(room)
 }
@@ -393,6 +540,34 @@ func (h *ChatHandler) GetRoomByCode(w http.ResponseWriter, r *http.Request) {
 	room, ok := h.Store.GetRoomByCode(code)
 	if !ok {
 		http.Error(w, `{"error":"room not found with provided code"}`, http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(room)
+}
+
+type JoinRoomReq struct {
+	Code string `json:"code"`
+	User string `json:"user,omitempty"`
+}
+
+func (h *ChatHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
+	var req JoinRoomReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"payload inválido"}`, http.StatusBadRequest)
+		return
+	}
+	user := strings.TrimSpace(req.User)
+	if user == "" {
+		user = h.extractUser(r)
+	}
+	if user == "" {
+		http.Error(w, `{"error":"Faça login para entrar no grupo"}`, http.StatusUnauthorized)
+		return
+	}
+	room, ok := h.Store.JoinRoom(req.Code, user)
+	if !ok {
+		http.Error(w, `{"error":"Grupo não encontrado com este código"}`, http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -414,12 +589,21 @@ func (h *ChatHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	creator := strings.TrimSpace(req.CreatedBy)
+	if creator == "" {
+		creator = h.extractUser(r)
+	}
+	if creator == "" {
+		http.Error(w, `{"error":"Faça login para criar conversas ou grupos"}`, http.StatusUnauthorized)
+		return
+	}
+
 	isGroup := true
 	if req.IsGroup != nil {
 		isGroup = *req.IsGroup
 	}
 
-	room := h.Store.CreateRoom(req.Name, req.Code, isGroup, req.Members, req.CreatedBy)
+	room := h.Store.CreateRoom(req.Name, req.Code, isGroup, req.Members, creator)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(room)

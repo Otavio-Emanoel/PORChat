@@ -248,3 +248,57 @@ func TestRoomStore_DeterministicOrderAndLastMessage(t *testing.T) {
 	}
 }
 
+func TestRoomStore_PrivateUserIsolation(t *testing.T) {
+	store := &RoomStore{
+		rooms:    make(map[string]*Room),
+		messages: make(map[string][]*ChatMessage),
+	}
+
+	// Group with Otavio and Pedro
+	groupA := store.CreateRoom("Dev Group", "DEV-1000", true, []string{"Pedro"}, "Otavio")
+	// Private 1-on-1 between Otavio and Raul
+	directOtavioRaul := store.CreateRoom("Raul", "DM-RAUL", false, []string{"Raul"}, "Otavio")
+	// Private 1-on-1 between Pedro and Raul
+	directPedroRaul := store.CreateRoom("Pedro", "DM-PEDRO", false, []string{"Raul"}, "Pedro")
+
+	// Otavio should see groupA and directOtavioRaul, but NOT directPedroRaul
+	otavioRooms := store.GetRoomsForUser("Otavio")
+	if len(otavioRooms) != 2 {
+		t.Fatalf("Expected Otavio to have 2 rooms, got %d", len(otavioRooms))
+	}
+	for _, r := range otavioRooms {
+		if r.ID == directPedroRaul.ID {
+			t.Errorf("Otavio should NOT see private conversation between Pedro and Raul!")
+		}
+	}
+
+	// Pedro should see groupA and directPedroRaul, but NOT directOtavioRaul
+	pedroRooms := store.GetRoomsForUser("Pedro")
+	if len(pedroRooms) != 2 {
+		t.Fatalf("Expected Pedro to have 2 rooms, got %d", len(pedroRooms))
+	}
+	for _, r := range pedroRooms {
+		if r.ID == directOtavioRaul.ID {
+			t.Errorf("Pedro should NOT see private conversation between Otavio and Raul!")
+		}
+	}
+
+	// Lucas (new uninvited user) should have 0 rooms
+	lucasRooms := store.GetRoomsForUser("Lucas")
+	if len(lucasRooms) != 0 {
+		t.Errorf("Lucas should have 0 rooms before being invited or joining, got %d", len(lucasRooms))
+	}
+
+	// Lucas joins groupA using code DEV-1000
+	joined, ok := store.JoinRoom("DEV-1000", "Lucas")
+	if !ok || joined.ID != groupA.ID {
+		t.Fatalf("Lucas failed to join groupA by code")
+	}
+
+	// Now Lucas should see groupA
+	lucasRoomsAfterJoin := store.GetRoomsForUser("Lucas")
+	if len(lucasRoomsAfterJoin) != 1 || lucasRoomsAfterJoin[0].ID != groupA.ID {
+		t.Errorf("Lucas should now have exactly groupA in his private list")
+	}
+}
+
