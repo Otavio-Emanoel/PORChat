@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useWebSocket } from '@/lib/useWebSocket';
-import { getStoredUser, clearStoredSession, type User } from '@/lib/auth';
+import { getStoredUser, getStoredToken, clearStoredSession, loginDemoUser, type User } from '@/lib/auth';
+import { AuthModal } from '@/components/AuthModal';
 import { CreateGroupModal } from '@/components/CreateGroupModal';
 import { ProfileModal } from '@/components/ProfileModal';
 import { InChatGameCard } from '@/components/InChatGameCard';
@@ -34,6 +35,8 @@ import {
   Trash2,
   LogOut,
   X,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -62,6 +65,10 @@ export default function RoomPage() {
   const roomId = params.roomId as string;
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+
   const [nickname, setNickname] = useState('');
   const [userAvatar, setUserAvatar] = useState('👑');
   const [userStatus, setUserStatus] = useState('Pronto pro debate! ⚔️');
@@ -95,13 +102,10 @@ export default function RoomPage() {
       setCurrentUser(user);
       setNickname(user.nickname);
     } else {
-      let guestNick = sessionStorage.getItem('porchat_guest_nick');
-      if (!guestNick) {
-        guestNick = 'Visitante_' + Math.floor(100 + Math.random() * 900);
-        sessionStorage.setItem('porchat_guest_nick', guestNick);
-      }
-      setNickname(guestNick);
+      setCurrentUser(null);
+      setNickname('');
     }
+    setIsAuthChecked(true);
 
     const savedAvatar = localStorage.getItem('porchat_avatar_emoji');
     if (savedAvatar) setUserAvatar(savedAvatar);
@@ -110,13 +114,31 @@ export default function RoomPage() {
     if (savedStatus) setUserStatus(savedStatus);
   }, []);
 
-  // Fetch Rooms & Contacts
-  useEffect(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+  const handleQuickLogin = async (profile: 'Otavio' | 'Pedro' | 'Raul') => {
+    try {
+      const res = await loginDemoUser(profile);
+      setCurrentUser(res.user);
+      setNickname(res.user.nickname);
+      setIsAuthModalOpen(false);
+    } catch (e) {
+      console.error('Falha no login:', e);
+    }
+  };
 
-    // Fetch rooms
-    fetch(`${apiBase}/api/rooms`)
-      .then((res) => res.json())
+  // Fetch Rooms & Contacts for Authenticated User
+  useEffect(() => {
+    if (!currentUser) return;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+    const token = getStoredToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    // Fetch user-specific private rooms
+    fetch(`${apiBase}/api/rooms?user=${encodeURIComponent(currentUser.nickname)}`, { headers })
+      .then((res) => {
+        if (!res.ok) throw new Error('Não autenticado');
+        return res.json();
+      })
       .then((data: RoomData[]) => {
         const sorted = [...data].sort((a, b) => {
           const timeA = new Date(a.last_message_at || a.created_at || 0).getTime();
@@ -129,17 +151,27 @@ export default function RoomPage() {
           unread_count: r.id === roomId ? 0 : (r.unread_count || 0),
         }));
         setAllRooms(roomsWithUnread);
+
         const current = sorted.find((r) => r.id === roomId);
-        if (current) setRoomInfo(current);
+        if (current) {
+          setRoomInfo(current);
+        } else if (sorted.length > 0) {
+          if (roomId === 'default' || !current) {
+            router.replace(`/room/${sorted[0].id}`);
+          }
+        }
       })
-      .catch((err) => console.error('Erro ao buscar salas:', err));
+      .catch((err) => console.error('Erro ao buscar salas privadas:', err));
 
     // Fetch contacts
     fetch(`${apiBase}/api/users`)
       .then((res) => res.json())
-      .then((data: Contact[]) => setContacts(data))
+      .then((data: Contact[]) => {
+        const others = data.filter((c) => c.nickname !== currentUser.nickname && c.email !== currentUser.email);
+        setContacts(others);
+      })
       .catch((err) => console.error('Erro ao buscar contatos:', err));
-  }, [roomId]);
+  }, [roomId, currentUser]);
 
   const {
     isConnected,
@@ -372,6 +404,7 @@ export default function RoomPage() {
 
   // Start 1-on-1 direct conversation with contact
   const handleStartDirectChat = async (contact: Contact) => {
+    if (!currentUser) return;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
     try {
       const existing = allRooms.find(
@@ -382,14 +415,18 @@ export default function RoomPage() {
         return;
       }
 
+      const token = getStoredToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch(`${apiBase}/api/rooms`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           name: contact.nickname,
           is_group: false,
-          members: [nickname, contact.nickname],
-          created_by: nickname,
+          members: [currentUser.nickname, contact.nickname],
+          created_by: currentUser.nickname,
         }),
       });
       const newRoom = await res.json();
@@ -409,6 +446,130 @@ export default function RoomPage() {
       m.nickname.toLowerCase().includes(query)
     );
   });
+
+  // Strict Authentication Gate: WhatsApp-style Login Screen
+  if (isAuthChecked && !currentUser) {
+    return (
+      <div className="min-h-screen bg-[#F0F2F5] flex flex-col items-center justify-center p-4 font-body relative overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-56 bg-brand-primary" />
+        <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="p-8 sm:p-10 text-center">
+            <div className="w-16 h-16 mx-auto rounded-3xl bg-brand-primary/10 flex items-center justify-center text-3xl mb-4 shadow-xs">
+              🔒
+            </div>
+            <h1 className="font-heading text-2xl sm:text-3xl font-extrabold text-ink-main tracking-tight">
+              Acesso Privado ao PORChat
+            </h1>
+            <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+              Assim como no WhatsApp, todas as conversas e grupos são privados e restritos à sua conta. Entre com seu perfil para acessar.
+            </p>
+
+            {/* Quick 1-Click Profile Selection */}
+            <div className="mt-8">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">
+                Entrar com 1 Clique (Demonstração)
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('Otavio')}
+                  className="p-4 rounded-2xl border-2 border-brand-primary/20 hover:border-brand-primary bg-brand-primary/5 hover:bg-brand-primary/10 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-2xl group-hover:scale-110 transition-transform">👑</span>
+                    <span className="font-bold text-sm text-ink-main">Otavio</span>
+                  </div>
+                  <span className="text-[11px] text-gray-500 block truncate">otavio@porchat.com</span>
+                  <span className="mt-2 inline-block text-[10px] font-semibold text-brand-primary bg-white px-2 py-0.5 rounded-full border border-brand-primary/20">
+                    Acessar Perfil →
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('Pedro')}
+                  className="p-4 rounded-2xl border-2 border-brand-action/20 hover:border-brand-action bg-brand-action/5 hover:bg-brand-action/10 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-2xl group-hover:scale-110 transition-transform">⚔️</span>
+                    <span className="font-bold text-sm text-ink-main">Pedro</span>
+                  </div>
+                  <span className="text-[11px] text-gray-500 block truncate">pedro@porchat.com</span>
+                  <span className="mt-2 inline-block text-[10px] font-semibold text-brand-action bg-white px-2 py-0.5 rounded-full border border-brand-action/20">
+                    Acessar Perfil →
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('Raul')}
+                  className="p-4 rounded-2xl border-2 border-brand-mint/20 hover:border-brand-mint bg-brand-mint/5 hover:bg-brand-mint/10 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-2xl group-hover:scale-110 transition-transform">⚡</span>
+                    <span className="font-bold text-sm text-ink-main">Raul</span>
+                  </div>
+                  <span className="text-[11px] text-gray-500 block truncate">raul@porchat.com</span>
+                  <span className="mt-2 inline-block text-[10px] font-semibold text-brand-mint bg-white px-2 py-0.5 rounded-full border border-brand-mint/20">
+                    Acessar Perfil →
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Manual Email Login / Register */}
+            <div className="mt-6 pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('login');
+                  setIsAuthModalOpen(true);
+                }}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-2xl bg-brand-primary text-white font-bold text-sm hover:bg-brand-primary/90 transition-all shadow-xs cursor-pointer"
+              >
+                Entrar com Email & Senha
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('register');
+                  setIsAuthModalOpen(true);
+                }}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-2xl bg-gray-100 text-ink-main font-bold text-sm hover:bg-gray-200 transition-all cursor-pointer"
+              >
+                Criar Nova Conta
+              </button>
+            </div>
+
+            <div className="mt-6">
+              <Link
+                href="/"
+                className="text-xs text-gray-400 hover:text-gray-600 transition-colors inline-flex items-center gap-1 font-medium"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Voltar para a Página Inicial
+              </Link>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 px-8 py-3.5 border-t border-gray-100 flex items-center justify-center gap-2 text-xs text-gray-500">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>Suas conversas e grupos são 100% privados e nunca compartilhados publicamente.</span>
+          </div>
+        </div>
+
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          initialMode={authMode}
+          onSuccess={(user: User) => {
+            setCurrentUser(user);
+            setNickname(user.nickname);
+            setIsAuthModalOpen(false);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#F0F2F5] text-ink-main overflow-hidden font-body">
@@ -493,9 +654,11 @@ export default function RoomPage() {
               }`}
             >
               <span>Grupos</span>
-              <span className="w-4 h-4 rounded-full bg-brand-action text-white text-[9px] flex items-center justify-center font-bold">
-                2
-              </span>
+              {allRooms.filter((r) => r.is_group).length > 0 && (
+                <span className="w-4 h-4 rounded-full bg-brand-primary text-white text-[9px] flex items-center justify-center font-bold">
+                  {allRooms.filter((r) => r.is_group).length}
+                </span>
+              )}
             </button>
             <button
               type="button"
@@ -545,12 +708,31 @@ export default function RoomPage() {
                     <button
                       type="button"
                       onClick={() => handleStartDirectChat(c)}
-                      className="px-3 py-1.5 rounded-xl bg-brand-primary text-white text-[11px] font-bold shadow-xs hover:bg-brand-primary/90 transition-all"
+                      className="px-3 py-1.5 rounded-xl bg-brand-primary text-white text-[11px] font-bold shadow-xs hover:bg-brand-primary/90 transition-all cursor-pointer"
                     >
                       Conversar
                     </button>
                   </div>
                 ))}
+              </div>
+            ) : filteredRooms.length === 0 ? (
+              <div className="p-8 text-center text-gray-400">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-gray-100 flex items-center justify-center text-xl mb-3">
+                  💬
+                </div>
+                <p className="text-xs font-semibold text-gray-600 mb-1">Nenhuma conversa encontrada</p>
+                <p className="text-[11px] text-gray-400 mb-4">
+                  {searchQuery ? 'Tente pesquisar por outro termo.' : 'Inicie uma conversa na aba Contatos ou crie um Novo Grupo!'}
+                </p>
+                {!searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('contacts')}
+                    className="px-3 py-1.5 rounded-xl bg-brand-primary text-white text-xs font-bold hover:bg-brand-primary/90 transition-all shadow-xs cursor-pointer"
+                  >
+                    Ver Contatos
+                  </button>
+                )}
               </div>
             ) : (
               filteredRooms.map((room) => {
@@ -614,9 +796,10 @@ export default function RoomPage() {
               onClick={() => {
                 clearStoredSession();
                 setCurrentUser(null);
-                setNickname('Visitante_' + Math.floor(100 + Math.random() * 900));
+                setNickname('');
+                router.push('/');
               }}
-              className="text-red-500 hover:underline font-bold text-[11px]"
+              className="text-red-500 hover:underline font-bold text-[11px] cursor-pointer"
             >
               Sair
             </button>
@@ -1091,6 +1274,18 @@ export default function RoomPage() {
           status_text: userStatus,
         }}
         onSave={handleSaveProfile}
+      />
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        initialMode={authMode}
+        onSuccess={(user: User) => {
+          setCurrentUser(user);
+          setNickname(user.nickname);
+          setIsAuthModalOpen(false);
+        }}
       />
     </div>
   );

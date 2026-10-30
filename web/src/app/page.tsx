@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { AuthModal } from '@/components/AuthModal';
 import { CreateRoomModal } from '@/components/CreateRoomModal';
-import { getStoredUser, clearStoredSession, type User } from '@/lib/auth';
+import { getStoredUser, clearStoredSession, loginDemoUser, type User } from '@/lib/auth';
 import {
   MessageSquare,
   Tv,
@@ -44,17 +44,8 @@ export default function LandingPage() {
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
 
-  // Public Rooms
-  const [rooms, setRooms] = useState<RoomData[]>([]);
-
   useEffect(() => {
     setCurrentUser(getStoredUser());
-
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
-    fetch(`${apiBase}/api/rooms`)
-      .then((res) => res.json())
-      .then((data: RoomData[]) => setRooms(data))
-      .catch((err) => console.error('Erro ao buscar salas:', err));
   }, []);
 
   const handleOpenAuth = (mode: 'login' | 'register' = 'login') => {
@@ -67,9 +58,19 @@ export default function LandingPage() {
     setCurrentUser(null);
   };
 
+  const handleQuickLogin = async (profile: 'Otavio' | 'Pedro' | 'Raul') => {
+    try {
+      const res = await loginDemoUser(profile);
+      setCurrentUser(res.user);
+      router.push('/room/default');
+    } catch (e) {
+      console.error('Falha no login rápido:', e);
+    }
+  };
+
   const handleJoinByCode = async (target: 'chat' | 'tv') => {
     if (!roomCode.trim()) {
-      setJoinError('Digite o código da sala (ex: POR-1000)');
+      setJoinError('Digite o código do grupo (ex: POR-1000)');
       return;
     }
 
@@ -79,16 +80,32 @@ export default function LandingPage() {
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
       const clean = roomCode.trim().toUpperCase();
-      const res = await fetch(`${apiBase}/api/rooms/code/${clean}`);
+
+      if (target === 'tv') {
+        const res = await fetch(`${apiBase}/api/rooms/code/${clean}`);
+        if (!res.ok) throw new Error('Nenhum grupo encontrado com este código.');
+        const room: RoomData = await res.json();
+        router.push(`/tv/${room.id}`);
+        return;
+      }
+
+      const user = currentUser || getStoredUser();
+      if (!user) {
+        setJoinError('Faça login com sua conta para entrar no grupo.');
+        handleOpenAuth('login');
+        return;
+      }
+
+      const res = await fetch(`${apiBase}/api/rooms/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: clean, user: user.nickname }),
+      });
       if (!res.ok) {
-        throw new Error('Nenhuma sala encontrada com este código.');
+        throw new Error('Nenhum grupo encontrado com este código.');
       }
       const room: RoomData = await res.json();
-      if (target === 'tv') {
-        router.push(`/tv/${room.id}`);
-      } else {
-        router.push(`/room/${room.id}`);
-      }
+      router.push(`/room/${room.id}`);
     } catch (err: unknown) {
       setJoinError(err instanceof Error ? err.message : 'Código inválido');
     } finally {
@@ -131,76 +148,176 @@ export default function LandingPage() {
               Bata papo em tempo real com seu grupo e ative disputas de argumentos no <strong>Tribunal</strong> ou <strong>Quizzes Relâmpago</strong> com pontuação por agilidade. Use o celular como controle e qualquer TV como palco.
             </p>
 
-            {/* Interactive Party Launcher Card */}
+            {/* Interactive WhatsApp Private Portal Card */}
             <div className="max-w-xl mx-auto bg-white rounded-3xl shadow-xl border border-gray-100 p-6 sm:p-8 text-left transition-all">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                  Entrar Direto em uma Sala
-                </span>
-                <span className="text-xs text-brand-primary font-bold">
-                  Código de 4 a 8 dígitos
-                </span>
-              </div>
+              {currentUser ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-brand-primary/10 border border-brand-primary/20">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-2xl bg-brand-primary text-white font-heading font-bold text-lg flex items-center justify-center shadow-xs">
+                        {currentUser.nickname[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-ink-main">{currentUser.nickname}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
+                            Online
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 font-mono">{currentUser.email}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="text-xs text-red-500 hover:underline font-semibold"
+                    >
+                      Trocar Conta
+                    </button>
+                  </div>
 
-              {joinError && (
-                <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs">
-                  {joinError}
+                  <button
+                    type="button"
+                    onClick={() => router.push('/room/default')}
+                    className="w-full py-4 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base shadow-lg tactile-btn transition-all flex items-center justify-center gap-3"
+                  >
+                    <MessageSquare className="w-5 h-5" />
+                    <span>Abrir Minhas Conversas Privadas 💬</span>
+                  </button>
+
+                  <div className="pt-3 border-t border-gray-100">
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">
+                      Ou entrar em um grupo pelo código de convite:
+                    </span>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={roomCode}
+                        onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                        placeholder="Ex: POR-1000"
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-gray-50 border border-gray-200 text-ink-main font-mono text-sm uppercase outline-none focus:border-brand-primary"
+                      />
+                      <button
+                        onClick={() => handleJoinByCode('chat')}
+                        disabled={joinLoading}
+                        className="px-4 py-2.5 rounded-xl bg-brand-primary hover:bg-brand-primary/90 text-white font-bold text-xs shadow-xs"
+                      >
+                        Participar
+                      </button>
+                      <button
+                        onClick={() => handleJoinByCode('tv')}
+                        disabled={joinLoading}
+                        className="px-4 py-2.5 rounded-xl bg-surface-tv hover:bg-surface-tv/90 text-white font-bold text-xs shadow-xs flex items-center gap-1.5"
+                      >
+                        <Tv className="w-3.5 h-3.5 text-brand-reward" />
+                        <span>Telão</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="text-center sm:text-left mb-2">
+                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>100% Privado — Como no WhatsApp</span>
+                    </div>
+                    <h3 className="font-heading text-xl font-bold text-ink-main">
+                      Acesse com sua Conta
+                    </h3>
+                    <p className="text-xs text-ink-muted">
+                      Para sua privacidade, todas as conversas e grupos são restritos exclusivamente aos seus participantes.
+                    </p>
+                  </div>
+
+                  {joinError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs">
+                      {joinError}
+                    </div>
+                  )}
+
+                  {/* 1-Click Fast Profile Switcher */}
+                  <div>
+                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-2">
+                      ⚡ Seleção Rápida de Perfil (1 Clique):
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleQuickLogin('Otavio')}
+                        className="p-3 rounded-2xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-left transition-all hover:scale-[1.02] shadow-2xs"
+                      >
+                        <div className="text-lg mb-1">👑</div>
+                        <div className="font-bold text-xs text-purple-900">Otavio</div>
+                        <div className="text-[10px] text-purple-600 truncate">otavio@...</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleQuickLogin('Pedro')}
+                        className="p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-left transition-all hover:scale-[1.02] shadow-2xs"
+                      >
+                        <div className="text-lg mb-1">⚔️</div>
+                        <div className="font-bold text-xs text-rose-900">Pedro</div>
+                        <div className="text-[10px] text-rose-600 truncate">pedro@...</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleQuickLogin('Raul')}
+                        className="p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-left transition-all hover:scale-[1.02] shadow-2xs"
+                      >
+                        <div className="text-lg mb-1">⚡</div>
+                        <div className="font-bold text-xs text-amber-900">Raul</div>
+                        <div className="text-[10px] text-amber-600 truncate">raul@...</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Standard Login Buttons */}
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAuth('login')}
+                      className="py-3 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 text-ink-main font-bold text-xs transition-colors text-center"
+                    >
+                      Entrar com Email
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAuth('register')}
+                      className="py-3 px-4 rounded-xl bg-brand-primary hover:bg-brand-primary/90 text-white font-bold text-xs shadow-xs transition-colors text-center"
+                    >
+                      Criar Nova Conta
+                    </button>
+                  </div>
+
+                  {/* Group code option */}
+                  <div className="pt-2 border-t border-gray-100">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={roomCode}
+                        onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                        placeholder="Código de grupo ou Telão..."
+                        className="flex-1 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-xs font-mono uppercase"
+                      />
+                      <button
+                        onClick={() => handleJoinByCode('chat')}
+                        className="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-ink-main font-bold text-xs"
+                      >
+                        Entrar
+                      </button>
+                      <button
+                        onClick={() => handleJoinByCode('tv')}
+                        className="px-3 py-2 rounded-xl bg-surface-tv text-white font-bold text-xs flex items-center gap-1"
+                      >
+                        <Tv className="w-3 h-3 text-brand-reward" />
+                        <span>Telão</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
-
-              <div className="space-y-3">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={roomCode}
-                    onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                    placeholder="Digite o código (ex: POR-1000)"
-                    className="w-full px-5 py-3.5 rounded-2xl bg-gray-50 border border-gray-200 text-ink-main font-mono text-base uppercase tracking-wider placeholder:text-gray-400 placeholder:normal-case placeholder:font-body focus:bg-white focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 outline-none transition-all"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleJoinByCode('chat')}
-                    disabled={joinLoading}
-                    className="py-3.5 px-5 rounded-2xl bg-brand-primary hover:bg-brand-primary/90 text-white font-bold text-sm shadow-md tactile-btn transition-all flex items-center justify-center gap-2"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Entrar no Chat</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleJoinByCode('tv')}
-                    disabled={joinLoading}
-                    className="py-3.5 px-5 rounded-2xl bg-surface-tv hover:bg-surface-tv/90 text-white font-bold text-sm shadow-md tactile-btn transition-all flex items-center justify-center gap-2"
-                  >
-                    <Tv className="w-4 h-4 text-brand-reward" />
-                    <span>Abrir no Telão (TV)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Quick links to active rooms */}
-              <div className="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
-                <span className="font-semibold text-ink-main flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-brand-reward" />
-                  Salas Populares da Galera:
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {rooms.slice(0, 3).map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => router.push(`/room/${r.id}`)}
-                      className="px-2.5 py-1 rounded-xl bg-gray-100/80 hover:bg-brand-primary/10 hover:text-brand-primary font-mono font-bold text-xs transition-all border border-gray-200/50 hover:border-brand-primary/20 shadow-xs"
-                    >
-                      {r.name.length > 18 ? r.code : r.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -311,10 +428,14 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => {
-                  const target = rooms[1]?.id || rooms[0]?.id;
-                  if (target) router.push(`/room/${target}`);
+                  const user = currentUser || getStoredUser();
+                  if (user) {
+                    router.push('/room/default');
+                  } else {
+                    handleOpenAuth('login');
+                  }
                 }}
-                className="w-full py-3.5 rounded-2xl bg-brand-action hover:bg-brand-action/90 text-white font-bold text-sm shadow-md tactile-btn transition-all flex items-center justify-center gap-2"
+                className="w-full py-3.5 rounded-2xl bg-brand-action hover:bg-brand-action/90 text-white font-bold text-sm shadow-md tactile-btn transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span>Experimentar no Tribunal</span>
                 <ArrowRight className="w-4 h-4" />
@@ -350,10 +471,14 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => {
-                  const target = rooms[2]?.id || rooms[0]?.id;
-                  if (target) router.push(`/room/${target}`);
+                  const user = currentUser || getStoredUser();
+                  if (user) {
+                    router.push('/room/default');
+                  } else {
+                    handleOpenAuth('login');
+                  }
                 }}
-                className="w-full py-3.5 rounded-2xl bg-brand-primary hover:bg-brand-primary/90 text-white font-bold text-sm shadow-md tactile-btn transition-all flex items-center justify-center gap-2"
+                className="w-full py-3.5 rounded-2xl bg-brand-primary hover:bg-brand-primary/90 text-white font-bold text-sm shadow-md tactile-btn transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span>Jogar Quiz na Arena</span>
                 <ArrowRight className="w-4 h-4" />
@@ -363,72 +488,72 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Active Public Rooms Section */}
-      <section id="salas-ativas" className="py-16 bg-white border-t border-gray-100">
+      {/* Privacy & Security Model Section */}
+      <section id="privacidade-seguranca" className="py-16 bg-white border-t border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row items-center justify-between mb-10 gap-4">
-            <div>
-              <span className="text-xs font-bold text-brand-mint uppercase tracking-wider block">
-                Comunidade
-              </span>
-              <h2 className="font-heading text-2xl sm:text-3xl font-bold text-ink-main">
-                Salas Públicas Ativas
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setCreateModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-brand-primary text-white text-xs font-bold shadow-sm hover:bg-brand-primary/90 transition-all tactile-btn flex items-center gap-2"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Criar Nova Sala</span>
-            </button>
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <span className="text-xs font-bold text-brand-mint uppercase tracking-wider block mb-2">
+              Privacidade em Primeiro Lugar
+            </span>
+            <h2 className="font-heading text-2xl sm:text-3xl font-bold text-ink-main">
+              Conversas 100% Privadas Como no WhatsApp
+            </h2>
+            <p className="text-sm text-gray-500 mt-2">
+              No PORChat não existem salas públicas abertas a desconhecidos. Cada conversa particular e grupo pertence exclusivamente aos seus participantes autorizados.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {rooms.map((room) => (
-              <div
-                key={room.id}
-                className="p-6 rounded-3xl bg-surface-light border border-gray-100 flex flex-col justify-between hover:shadow-md transition-all group"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="px-2.5 py-1 rounded-lg bg-brand-primary/10 text-brand-primary text-xs font-mono font-bold">
-                      {room.code}
-                    </span>
-                    <span className="flex items-center gap-1.5 text-xs text-brand-mint font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-brand-mint animate-pulse" />
-                      Aberta
-                    </span>
-                  </div>
-                  <h3 className="font-heading text-lg font-bold text-ink-main mb-1">
-                    {room.name}
-                  </h3>
-                  <p className="text-xs text-ink-muted">
-                    Mini-jogos e chat sincronizado em tempo real.
-                  </p>
+            <div className="p-8 rounded-3xl bg-surface-light border border-gray-100 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="w-12 h-12 rounded-2xl bg-brand-primary/10 text-brand-primary flex items-center justify-center text-2xl mb-4">
+                  💬
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/room/${room.id}`)}
-                    className="py-2.5 px-3 rounded-xl bg-white hover:bg-brand-primary hover:text-white border border-gray-200 text-ink-main text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 shadow-2xs"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Entrar</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/tv/${room.id}`)}
-                    className="py-2.5 px-3 rounded-xl bg-surface-tv hover:bg-surface-tv/90 text-white text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 shadow-2xs"
-                  >
-                    <Tv className="w-3.5 h-3.5 text-brand-reward" />
-                    <span>Telão</span>
-                  </button>
-                </div>
+                <h3 className="font-heading text-lg font-bold text-ink-main mb-2">
+                  Conversas Diretas Particulares
+                </h3>
+                <p className="text-xs text-ink-muted leading-relaxed">
+                  Converse 1 a 1 de forma segura. Apenas você e seu contato têm acesso às mensagens trocadas, com histórico sincronizado em tempo real.
+                </p>
               </div>
-            ))}
+              <div className="mt-6 flex items-center gap-2 text-xs font-semibold text-brand-primary">
+                <ShieldCheck className="w-4 h-4" /> Isolamento Total de Conversas
+              </div>
+            </div>
+
+            <div className="p-8 rounded-3xl bg-surface-light border border-gray-100 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="w-12 h-12 rounded-2xl bg-brand-action/10 text-brand-action flex items-center justify-center text-2xl mb-4">
+                  👥
+                </div>
+                <h3 className="font-heading text-lg font-bold text-ink-main mb-2">
+                  Grupos Fechados com Código
+                </h3>
+                <p className="text-xs text-ink-muted leading-relaxed">
+                  Crie grupos com seus amigos e compartilhe o código PIN de convite. Somente membros autorizados entram e participam dos debates e quizzes.
+                </p>
+              </div>
+              <div className="mt-6 flex items-center gap-2 text-xs font-semibold text-brand-action">
+                <CheckCircle2 className="w-4 h-4" /> Convites por PIN Exclusivo
+              </div>
+            </div>
+
+            <div className="p-8 rounded-3xl bg-surface-light border border-gray-100 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="w-12 h-12 rounded-2xl bg-brand-mint/10 text-brand-mint flex items-center justify-center text-2xl mb-4">
+                  📺
+                </div>
+                <h3 className="font-heading text-lg font-bold text-ink-main mb-2">
+                  Modo Telão Sincronizado
+                </h3>
+                <p className="text-xs text-ink-muted leading-relaxed">
+                  Abra o telão na sua Smart TV ou projetor enquanto cada participante interage com controles táteis e reações ao vivo pelo smartphone.
+                </p>
+              </div>
+              <div className="mt-6 flex items-center gap-2 text-xs font-semibold text-brand-mint">
+                <Tv className="w-4 h-4" /> Experiência Second-Screen
+              </div>
+            </div>
           </div>
         </div>
       </section>

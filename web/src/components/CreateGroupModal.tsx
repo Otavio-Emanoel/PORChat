@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Users, Check, AlertCircle, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { getStoredToken } from '@/lib/auth';
 
 interface Contact {
   id: string;
@@ -57,9 +58,13 @@ export function CreateGroupModal({ isOpen, onClose, currentUserNickname }: Creat
       const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
       const allMembers = [currentUserNickname || 'Você', ...selectedContacts];
 
+      const token = getStoredToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch(`${apiBase}/api/rooms`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           name: groupName.trim(),
           is_group: true,
