@@ -167,7 +167,7 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("🚀 PORChat API running at http://localhost%s", port)
+		log.Printf("PORChat API running at http://localhost%s", port)
 		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}

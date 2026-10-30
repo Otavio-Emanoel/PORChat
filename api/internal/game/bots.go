@@ -74,7 +74,7 @@ func (s *BotSimulator) Toggle() bool {
 			}
 		}
 
-		s.sendSystemMessage("🤖 Demo Bots desconectados da sala.")
+		s.sendSystemMessage("Demo Bots desconectados da sala.")
 		log.Printf("[Room %s] Demo Bots deactivated.", s.roomID)
 		return false
 	}
@@ -92,7 +92,7 @@ func (s *BotSimulator) Toggle() bool {
 		}
 	}
 
-	s.sendSystemMessage("🤖 5 Demo Bots conectados! Eles vão reagir e votar ao vivo na TV.")
+	s.sendSystemMessage("5 Demo Bots conectados! Eles vão interagir e votar ao vivo no telão.")
 	log.Printf("[Room %s] Demo Bots activated with %d bots.", s.roomID, len(defaultDemoBots))
 
 	go s.runBotLoop()
@@ -121,7 +121,7 @@ func (s *BotSimulator) runBotLoop() {
 	defer reactionTicker.Stop()
 	defer gameCheckTicker.Stop()
 
-	emojis := []string{"🔥", "👏", "🤯", "🍅", "🎉", "⭐"}
+	emojis := []string{"fire", "applause", "shock", "point", "cheer", "star"}
 
 	for {
 		select {
