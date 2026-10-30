@@ -237,6 +237,21 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 			}
 		}
 
+	case "chat:delete_message":
+		var p struct {
+			MessageID string `json:"message_id"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.MessageID != "" {
+			if h.chatStore.DeleteMessage(c.RoomID, p.MessageID, c.UserID) {
+				payload := map[string]interface{}{
+					"message_id": p.MessageID,
+				}
+				if outEnv, err := NewEnvelope("chat:message_deleted", c.RoomID, payload); err == nil {
+					h.BroadcastToRoom(c.RoomID, outEnv)
+				}
+			}
+		}
+
 	case "sys:ping":
 		var p struct {
 			ClientTime int64 `json:"client_time"`

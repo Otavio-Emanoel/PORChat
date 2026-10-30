@@ -162,7 +162,7 @@ func (s *RoomStore) seedRooms() {
 				ID:        uuid.New().String(),
 				RoomID:    r.ID,
 				UserID:    "system",
-				Nickname:  "PORBot",
+				Nickname:  "Sistema",
 				Content:   "Grupo criado! Inicie debates ou quizzes e acompanhe no telão.",
 				Type:      "system",
 				CreatedAt: time.Now().Add(-10 * time.Minute),
@@ -395,7 +395,7 @@ func (s *RoomStore) CreateRoom(name, code string, isGroup bool, members []string
 			ID:        uuid.New().String(),
 			RoomID:    room.ID,
 			UserID:    "system",
-			Nickname:  "PORBot",
+			Nickname:  "Sistema",
 			Content:   welcomeText,
 			Type:      "system",
 			CreatedAt: now,
@@ -450,6 +450,21 @@ func (s *RoomStore) ToggleReaction(roomID, messageID, emoji, userID string) (map
 		}
 	}
 	return nil, false
+}
+
+func (s *RoomStore) DeleteMessage(roomID, messageID, userID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	msgs := s.messages[roomID]
+	for i, m := range msgs {
+		if m.ID == messageID {
+			s.messages[roomID] = append(msgs[:i], msgs[i+1:]...)
+			go func() { _ = s.SaveToDisk("data/chat_store.json") }()
+			return true
+		}
+	}
+	return false
 }
 
 func (s *RoomStore) GetMessages(roomID string, limit int) []*ChatMessage {
