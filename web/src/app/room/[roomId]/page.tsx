@@ -12,6 +12,8 @@ import { CommandPalette } from '@/components/CommandPalette';
 import { MessageHoverBar, MessageReactionPills } from '@/components/MessageReactions';
 import { PinnedBanner } from '@/components/PinnedBanner';
 import { AudioWaveformBubble } from '@/components/AudioWaveformBubble';
+import { GroupDrawer } from '@/components/GroupDrawer';
+import { audioFeedback } from '@/lib/audioFeedback';
 import {
   MessageSquare,
   Tv,
@@ -37,6 +39,9 @@ import {
   X,
   ShieldCheck,
   Lock,
+  Volume2,
+  VolumeX,
+  Paperclip,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -70,8 +75,8 @@ export default function RoomPage() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
   const [nickname, setNickname] = useState('');
-  const [userAvatar, setUserAvatar] = useState('👑');
-  const [userStatus, setUserStatus] = useState('Pronto pro debate! ⚔️');
+  const [userAvatar, setUserAvatar] = useState('OE');
+  const [userStatus, setUserStatus] = useState('Disponível');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const [inputText, setInputText] = useState('');
@@ -92,8 +97,22 @@ export default function RoomPage() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
 
+  // Modern chat & media states
+  const [isMuted, setIsMuted] = useState(false);
+  const [isGroupDrawerOpen, setIsGroupDrawerOpen] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<{ id: string; nickname: string; content: string } | null>(null);
+  const [attachment, setAttachment] = useState<{ name: string; size: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevMessagesLength = useRef(0);
+
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const getMonogram = (name: string) => {
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  };
 
   // Initialize User & Profile Customization
   useEffect(() => {
@@ -251,14 +270,66 @@ export default function RoomPage() {
     }
   };
 
+  useEffect(() => {
+    setIsMuted(audioFeedback.getMuted());
+  }, []);
+
+  const handleToggleMute = () => {
+    const next = !isMuted;
+    setIsMuted(next);
+    audioFeedback.setMuted(next);
+    showToast(next ? 'Áudio de notificações silenciado' : 'Áudio de notificações ativado');
+  };
+
+  useEffect(() => {
+    if (messages.length > prevMessagesLength.current) {
+      const latest = messages[messages.length - 1];
+      if (latest && latest.nickname === nickname) {
+        audioFeedback.playSend();
+      } else if (latest && latest.type !== 'system') {
+        audioFeedback.playReceive();
+      }
+    }
+    prevMessagesLength.current = messages.length;
+  }, [messages, nickname]);
+
+  const handleAttachmentClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const sizeKB = (file.size / 1024).toFixed(1);
+      const sizeStr =
+        file.size > 1024 * 1024
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${sizeKB} KB`;
+      setAttachment({ name: file.name, size: sizeStr });
+    }
+  };
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() && !attachment) return;
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     sendTyping(false);
 
-    sendMessage(inputText.trim());
+    let messageContent = inputText.trim();
+    if (replyingTo) {
+      messageContent = `> [${replyingTo.nickname}]: ${replyingTo.content}\n${messageContent}`;
+      setReplyingTo(null);
+    }
+    if (attachment) {
+      messageContent = messageContent
+        ? `${messageContent}\n📎 [Arquivo: ${attachment.name} (${attachment.size})]`
+        : `📎 [Arquivo: ${attachment.name} (${attachment.size})]`;
+      setAttachment(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+
+    sendMessage(messageContent);
     setInputText('');
   };
 
@@ -447,6 +518,67 @@ export default function RoomPage() {
     );
   });
 
+  const renderHighlightedText = (text: string) => {
+    if (!messageSearchQuery.trim()) return text;
+    const parts = text.split(
+      new RegExp(`(${messageSearchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+    );
+    return parts.map((part, i) =>
+      part.toLowerCase() === messageSearchQuery.toLowerCase() ? (
+        <mark key={i} className="bg-amber-200 text-ink-main rounded px-0.5 font-medium">
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  };
+
+  const renderMessageContent = (content: string) => {
+    if (content.startsWith('> [')) {
+      const newlineIndex = content.indexOf('\n');
+      if (newlineIndex !== -1) {
+        const quoteHeader = content.substring(0, newlineIndex);
+        const actualBody = content.substring(newlineIndex + 1);
+        return (
+          <div className="space-y-1">
+            <div className="px-2 py-1 rounded-lg bg-black/5 border-l-2 border-brand-primary text-xs text-gray-600 mb-1">
+              {quoteHeader.replace(/^>\s*/, '')}
+            </div>
+            <div>{renderHighlightedText(actualBody)}</div>
+          </div>
+        );
+      }
+    }
+    return renderHighlightedText(content);
+  };
+
+  const renderDateDivider = (currentDateStr?: string, prevDateStr?: string) => {
+    if (!currentDateStr) return null;
+    try {
+      const d1 = new Date(currentDateStr);
+      const d1Str = d1.toDateString();
+      const d2Str = prevDateStr ? new Date(prevDateStr).toDateString() : null;
+      if (d1Str === d2Str) return null;
+
+      const today = new Date().toDateString();
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      let label = d1.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
+      if (d1Str === today) label = 'Hoje';
+      else if (d1Str === yesterday) label = 'Ontem';
+
+      return (
+        <div key={`date-divider-${currentDateStr}`} className="flex justify-center my-3 select-none">
+          <span className="px-3 py-1 rounded-full bg-white/90 shadow-2xs border border-gray-200/60 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+            {label}
+          </span>
+        </div>
+      );
+    } catch {
+      return null;
+    }
+  };
+
   // Strict Authentication Gate: WhatsApp-style Login Screen
   if (isAuthChecked && !currentUser) {
     return (
@@ -454,8 +586,8 @@ export default function RoomPage() {
         <div className="absolute top-0 left-0 right-0 h-56 bg-brand-primary" />
         <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
           <div className="p-8 sm:p-10 text-center">
-            <div className="w-16 h-16 mx-auto rounded-3xl bg-brand-primary/10 flex items-center justify-center text-3xl mb-4 shadow-xs">
-              🔒
+            <div className="w-16 h-16 mx-auto rounded-3xl bg-brand-primary/10 flex items-center justify-center text-brand-primary mb-4 shadow-xs">
+              <Lock className="w-8 h-8" />
             </div>
             <h1 className="font-heading text-2xl sm:text-3xl font-extrabold text-ink-main tracking-tight">
               Acesso Privado ao PORChat
@@ -476,7 +608,9 @@ export default function RoomPage() {
                   className="p-4 rounded-2xl border-2 border-brand-primary/20 hover:border-brand-primary bg-brand-primary/5 hover:bg-brand-primary/10 text-left transition-all group cursor-pointer"
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-2xl group-hover:scale-110 transition-transform">👑</span>
+                    <div className="w-7 h-7 rounded-full bg-brand-primary text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                      OE
+                    </div>
                     <span className="font-bold text-sm text-ink-main">Otavio</span>
                   </div>
                   <span className="text-[11px] text-gray-500 block truncate">otavio@porchat.com</span>
@@ -491,7 +625,9 @@ export default function RoomPage() {
                   className="p-4 rounded-2xl border-2 border-brand-action/20 hover:border-brand-action bg-brand-action/5 hover:bg-brand-action/10 text-left transition-all group cursor-pointer"
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-2xl group-hover:scale-110 transition-transform">⚔️</span>
+                    <div className="w-7 h-7 rounded-full bg-brand-action text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                      PR
+                    </div>
                     <span className="font-bold text-sm text-ink-main">Pedro</span>
                   </div>
                   <span className="text-[11px] text-gray-500 block truncate">pedro@porchat.com</span>
@@ -506,7 +642,9 @@ export default function RoomPage() {
                   className="p-4 rounded-2xl border-2 border-brand-mint/20 hover:border-brand-mint bg-brand-mint/5 hover:bg-brand-mint/10 text-left transition-all group cursor-pointer"
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-2xl group-hover:scale-110 transition-transform">⚡</span>
+                    <div className="w-7 h-7 rounded-full bg-brand-mint text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                      RL
+                    </div>
                     <span className="font-bold text-sm text-ink-main">Raul</span>
                   </div>
                   <span className="text-[11px] text-gray-500 block truncate">raul@porchat.com</span>
@@ -584,8 +722,11 @@ export default function RoomPage() {
               className="flex items-center gap-3 text-left hover:opacity-90 transition-all group"
               title="Clique para customizar avatar e status"
             >
-              <div className="w-10 h-10 rounded-2xl bg-brand-primary flex items-center justify-center text-white text-xl shadow-xs group-hover:scale-105 transition-transform">
-                {userAvatar}
+              <div className="relative">
+                <div className="w-10 h-10 rounded-2xl bg-brand-primary flex items-center justify-center text-white font-bold text-sm shadow-xs group-hover:scale-105 transition-transform">
+                  {getMonogram(nickname || 'OE')}
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
               </div>
               <div className="leading-tight">
                 <span className="text-sm font-bold text-ink-main block truncate max-w-[130px]">
@@ -811,9 +952,13 @@ export default function RoomPage() {
       <main className="flex-1 flex flex-col h-full bg-[#EFEAE2] relative">
         {/* WhatsApp-Style Header */}
         <header className="h-16 px-4 bg-[#F0F2F5] border-b border-gray-200 flex items-center justify-between z-10 shadow-xs">
-          <div className="flex items-center gap-3">
+          <div
+            onClick={() => setIsGroupDrawerOpen(true)}
+            className="flex items-center gap-3 cursor-pointer group"
+            title="Toque para ver membros e detalhes"
+          >
             <div
-              className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-heading font-bold text-base shadow-xs ${
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-heading font-bold text-base shadow-xs group-hover:scale-105 transition-transform ${
                 roomInfo?.is_group
                   ? 'bg-gradient-to-br from-brand-primary to-purple-800'
                   : 'bg-brand-action'
@@ -827,14 +972,17 @@ export default function RoomPage() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="font-heading text-base font-bold text-ink-main tracking-tight leading-none">
+                <h2 className="font-heading text-base font-bold text-ink-main tracking-tight leading-none group-hover:text-brand-primary transition-colors">
                   {roomInfo?.name || 'Conversa'}
                 </h2>
                 {roomInfo?.code && (
                   <button
-                    onClick={handleCopyInvite}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyInvite();
+                    }}
                     className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-gray-200 text-gray-600 text-[10px] font-mono font-bold hover:bg-gray-50 transition-all"
-                    title="Copiar link e código de convite"
+                    title="Copiar código de convite"
                   >
                     <span>{roomInfo.code}</span>
                     {copied ? (
@@ -848,7 +996,7 @@ export default function RoomPage() {
               <div className="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5">
                 <span>
                   {roomInfo?.is_group
-                    ? `${onlineUsers.length} online • ${roomInfo?.members?.join(', ') || 'Pedro, Otavio, Raul'}`
+                    ? `${onlineUsers.length} online • toque para ver detalhes`
                     : `${onlineUsers.length} participante online`}
                 </span>
                 {latency !== null && (
@@ -865,6 +1013,20 @@ export default function RoomPage() {
 
           {/* Header Action Buttons (Start Games, Host Moderation, Search, TV Mode & Room Menu) */}
           <div className="flex items-center gap-2">
+            {/* Audio notifications mute toggle */}
+            <button
+              type="button"
+              onClick={handleToggleMute}
+              className={`p-2 rounded-xl border border-gray-200 transition-all tactile-btn ${
+                isMuted
+                  ? 'bg-amber-50 text-amber-600 border-amber-200'
+                  : 'bg-white hover:bg-gray-100 text-gray-600'
+              }`}
+              title={isMuted ? 'Ativar sons de notificações' : 'Silenciar notificações'}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+
             {/* Command Palette Trigger */}
             <button
               type="button"
@@ -1101,79 +1263,101 @@ export default function RoomPage() {
               </p>
             </div>
           ) : (
-            displayedMessages.map((msg) => {
+            displayedMessages.map((msg, index) => {
               const isMe = msg.nickname === nickname;
               const isSystem = msg.type === 'system';
               const isVoice = msg.content.startsWith('🎤 Mensagem de Voz');
+              const prevMsg = index > 0 ? displayedMessages[index - 1] : undefined;
 
               if (isSystem) {
                 return (
-                  <div key={msg.id} className="flex justify-center my-2 animate-message-in">
-                    <span className="px-3 py-1 rounded-full bg-white/80 backdrop-blur-xs text-gray-600 text-[11px] font-medium shadow-2xs border border-gray-200/50">
-                      ✨ {msg.content}
-                    </span>
-                  </div>
+                  <React.Fragment key={msg.id}>
+                    {renderDateDivider(msg.created_at, prevMsg?.created_at)}
+                    <div className="flex justify-center my-2 animate-message-in">
+                      <span className="px-3 py-1 rounded-full bg-white/80 backdrop-blur-xs text-gray-600 text-[11px] font-medium shadow-2xs border border-gray-200/50 flex items-center gap-1.5">
+                        <Lock className="w-3 h-3 text-brand-primary" />
+                        {msg.content}
+                      </span>
+                    </div>
+                  </React.Fragment>
                 );
               }
 
               return (
-                <div
-                  key={msg.id}
-                  onMouseEnter={() => setHoveredMessageId(msg.id)}
-                  onMouseLeave={() => setHoveredMessageId(null)}
-                  className={`group relative flex flex-col ${
-                    isMe ? 'items-end' : 'items-start'
-                  } animate-message-in`}
-                >
-                  {!isMe && (
-                    <span className="text-[11px] font-bold text-brand-primary ml-2 mb-0.5">
-                      {msg.nickname}
-                    </span>
-                  )}
-
-                  {/* Quick Telegram-style Hover Reaction Bar (Item 50) */}
-                  {hoveredMessageId === msg.id && (
-                    <MessageHoverBar
-                      messageId={msg.id}
-                      onReact={(emoji) => handleMessageReaction(msg.id, emoji)}
-                      isCurrentUser={isMe}
-                    />
-                  )}
-
+                <React.Fragment key={msg.id}>
+                  {renderDateDivider(msg.created_at, prevMsg?.created_at)}
                   <div
-                    className={`max-w-md px-3.5 py-2 rounded-2xl text-sm leading-relaxed shadow-xs relative transition-all ${
-                      isMe
-                        ? 'bg-[#E7FFDB] text-ink-main rounded-tr-none border border-emerald-200/40'
-                        : 'bg-white text-ink-main rounded-tl-none border border-gray-200/70'
-                    }`}
+                    onMouseEnter={() => setHoveredMessageId(msg.id)}
+                    onMouseLeave={() => setHoveredMessageId(null)}
+                    className={`group relative flex flex-col ${
+                      isMe ? 'items-end' : 'items-start'
+                    } animate-message-in`}
                   >
-                    {isVoice ? (
-                      <AudioWaveformBubble durationSeconds={14} isCurrentUser={isMe} />
-                    ) : (
-                      <span>{msg.content}</span>
+                    {!isMe && (
+                      <span className="text-[11px] font-bold text-brand-primary ml-2 mb-0.5">
+                        {msg.nickname}
+                      </span>
                     )}
 
-                    <div className="flex items-center gap-1 float-right ml-3 mt-1 text-[10px] text-gray-400 font-mono">
-                      <span>{formatRelativeTime(msg.created_at)}</span>
-                      {/* Morphing SVG Double Checkmark (Item 59) */}
-                      {isMe && (
-                        <span className="text-brand-primary" title="Entregue">
-                          <svg className="w-3.5 h-3.5 inline" viewBox="0 0 16 16" fill="currentColor">
-                            <path d="M12.354 4.354a.5.5 0 0 0-.708-.708L5 10.293 1.854 7.146a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l7-7zm-3 0a.5.5 0 0 0-.708-.708L5 7.293 3.854 6.146a.5.5 0 1 0-.708.708l1.5 1.5a.5.5 0 0 0 .708 0l4-4z"/>
-                          </svg>
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                    {/* Quick Telegram/WhatsApp-style Hover Reaction & Action Bar */}
+                    {hoveredMessageId === msg.id && (
+                      <MessageHoverBar
+                        messageId={msg.id}
+                        onReact={(emoji) => handleMessageReaction(msg.id, emoji)}
+                        isCurrentUser={isMe}
+                        onReply={() =>
+                          setReplyingTo({
+                            id: msg.id,
+                            nickname: msg.nickname,
+                            content: msg.content,
+                          })
+                        }
+                        onCopy={() => {
+                          navigator.clipboard.writeText(msg.content);
+                          showToast('Texto copiado para a área de transferência!');
+                        }}
+                        onDelete={() => {
+                          sendAction('chat:delete_message', { message_id: msg.id });
+                          showToast('Mensagem apagada');
+                        }}
+                      />
+                    )}
 
-                  {/* Aggregated Reaction Badges (Item 51) */}
-                  <MessageReactionPills
-                    reactions={msg.reactions}
-                    currentUserId={nickname}
-                    onToggleReaction={(emoji) => handleMessageReaction(msg.id, emoji)}
-                    isCurrentUser={isMe}
-                  />
-                </div>
+                    <div
+                      className={`max-w-md px-3.5 py-2 rounded-2xl text-sm leading-relaxed shadow-xs relative transition-all ${
+                        isMe
+                          ? 'bg-[#E7FFDB] text-ink-main rounded-tr-none border border-emerald-200/40'
+                          : 'bg-white text-ink-main rounded-tl-none border border-gray-200/70'
+                      }`}
+                    >
+                      {isVoice ? (
+                        <AudioWaveformBubble durationSeconds={14} isCurrentUser={isMe} />
+                      ) : (
+                        renderMessageContent(msg.content)
+                      )}
+
+                      <div className="flex items-center gap-1 float-right ml-3 mt-1 text-[10px] text-gray-400 font-mono">
+                        <span>{formatRelativeTime(msg.created_at)}</span>
+                        {/* WhatsApp-style Double Checkmark */}
+                        {isMe && (
+                          <span className="text-brand-primary" title="Entregue">
+                            <svg className="w-3.5 h-3.5 inline" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M12.354 4.354a.5.5 0 0 0-.708-.708L5 10.293 1.854 7.146a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l7-7zm-3 0a.5.5 0 0 0-.708-.708L5 7.293 3.854 6.146a.5.5 0 1 0-.708.708l1.5 1.5a.5.5 0 0 0 .708 0l4-4z"/>
+                            </svg>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Aggregated Reaction Badges */}
+                    <MessageReactionPills
+                      reactions={msg.reactions}
+                      currentUserId={nickname}
+                      onToggleReaction={(emoji) => handleMessageReaction(msg.id, emoji)}
+                      isCurrentUser={isMe}
+                    />
+                  </div>
+                </React.Fragment>
               );
             })
           )}
@@ -1220,11 +1404,69 @@ export default function RoomPage() {
 
         {/* Floating Frosted Glass Message Input Dock (Item 54) */}
         <footer className="p-3 bg-white/80 backdrop-blur-md border-t border-gray-200/80">
+          {/* Quoted Reply Preview Bar */}
+          {replyingTo && (
+            <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-gray-50 border border-gray-200 border-l-4 border-l-brand-primary rounded-xl text-xs animate-in fade-in duration-150">
+              <div className="truncate">
+                <span className="font-bold text-brand-primary block text-[11px] leading-tight">
+                  Respondendo a {replyingTo.nickname}
+                </span>
+                <span className="text-gray-600 truncate block text-xs mt-0.5">
+                  {replyingTo.content}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplyingTo(null)}
+                className="p-1 rounded-md hover:bg-gray-200 text-gray-400 hover:text-gray-600 ml-2 cursor-pointer"
+                title="Cancelar resposta"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Attachment Preview Chip */}
+          {attachment && (
+            <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-brand-primary/10 border border-brand-primary/20 rounded-xl text-xs animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 truncate text-brand-primary font-medium">
+                <Paperclip className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{attachment.name}</span>
+                <span className="text-[10px] text-gray-400 font-mono">({attachment.size})</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachment(null);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="p-1 rounded-md hover:bg-brand-primary/20 text-brand-primary ml-2 cursor-pointer"
+                title="Remover anexo"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           <form onSubmit={handleSend} className="flex items-center gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={handleAttachmentClick}
+              className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center cursor-pointer"
+              title="Anexar arquivo"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
             <button
               type="button"
               onClick={handleSendVoiceNote}
-              className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center"
+              className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center cursor-pointer"
               title="Gravar Áudio de Voz"
             >
               <Mic className="w-4 h-4" />
@@ -1233,19 +1475,36 @@ export default function RoomPage() {
               type="text"
               value={inputText}
               onChange={handleInputChange}
-              placeholder="Digite uma mensagem ou /bots..."
+              placeholder="Digite uma mensagem..."
               className="flex-1 px-4 py-2.5 rounded-2xl bg-gray-50/90 border border-gray-200 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary focus:bg-white transition-all"
             />
             <button
               type="submit"
-              disabled={!inputText.trim()}
-              className="p-2.5 rounded-full bg-brand-primary text-white font-bold hover:bg-brand-primary/90 disabled:opacity-40 shadow-xs tactile-btn transition-all flex items-center justify-center"
+              disabled={!inputText.trim() && !attachment}
+              className="p-2.5 rounded-full bg-brand-primary text-white font-bold hover:bg-brand-primary/90 disabled:opacity-40 shadow-xs tactile-btn transition-all flex items-center justify-center cursor-pointer"
             >
               <Send className="w-4 h-4" />
             </button>
           </form>
         </footer>
       </main>
+
+      {/* Sliding Group Details & Members Drawer (Item 23) */}
+      <GroupDrawer
+        isOpen={isGroupDrawerOpen}
+        onClose={() => setIsGroupDrawerOpen(false)}
+        roomName={roomInfo?.name || 'Conversa'}
+        roomCode={roomInfo?.code}
+        isGroup={!!roomInfo?.is_group}
+        members={roomInfo?.members || [nickname]}
+        onlineUsers={onlineUsers}
+        createdBy={roomInfo?.created_by}
+        createdAt={roomInfo?.created_at}
+        onLeave={handleLeaveRoom}
+        onDelete={handleDeleteRoom}
+        isMuted={isMuted}
+        onToggleMute={handleToggleMute}
+      />
 
       {/* Linear-Style Command Palette (Item 48) */}
       <CommandPalette
