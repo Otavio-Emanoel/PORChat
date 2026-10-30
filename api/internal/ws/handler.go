@@ -3,27 +3,36 @@ package ws
 import (
 	"log"
 	"net/http"
-	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/porchat/api/internal/auth"
+	"github.com/porchat/api/internal/security"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow cross-origin for dev Web & Mobile
-	},
-}
-
 type WSHandler struct {
-	Hub       *Hub
-	UserStore *auth.UserStore
+	Hub             *Hub
+	UserStore       *auth.UserStore
+	OriginValidator *security.OriginValidator
+	RateLimiter     *security.RateLimiter
+	AuditLogger     *security.AuditLogger
+	upgrader        websocket.Upgrader
 }
 
 func NewWSHandler(hub *Hub, userStore *auth.UserStore) *WSHandler {
-	return &WSHandler{Hub: hub, UserStore: userStore}
+	val := security.NewOriginValidator()
+	return &WSHandler{
+		Hub:             hub,
+		UserStore:       userStore,
+		OriginValidator: val,
+		RateLimiter:     security.NewRateLimiter(20.0, 40.0, 5*time.Minute),
+		AuditLogger:     security.NewAuditLogger(1000, false),
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  2048,
+			WriteBufferSize: 2048,
+			CheckOrigin:     val.CheckOriginFunc(),
+		},
+	}
 }
 
 func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
@@ -62,24 +71,33 @@ func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Nickname sanitization: remove tag brackets and clamp between 2 and 24 characters
-	nickname = strings.TrimSpace(nickname)
-	nickname = strings.ReplaceAll(nickname, "<", "")
-	nickname = strings.ReplaceAll(nickname, ">", "")
-	runes := []rune(nickname)
-	if len(runes) > 24 {
-		runes = runes[:24]
-	}
-	if len(runes) < 2 {
-		nickname = "Player"
-	} else {
-		nickname = string(runes)
+	clientIP := security.ExtractClientIP(r)
+	if h.RateLimiter != nil && !h.RateLimiter.Allow("ws:"+clientIP) {
+		http.Error(w, `{"error":"too many connection attempts"}`, http.StatusTooManyRequests)
+		if h.AuditLogger != nil {
+			h.AuditLogger.Log(security.EventRateLimitExceeded, security.SeverityWarn, clientIP, userID, roomID, "WS handshake rate limit exceeded", nil)
+		}
+		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	// Nickname sanitization using multi-pass sanitizer
+	if cleanNick, err := security.SanitizeNickname(nickname); err == nil {
+		nickname = cleanNick
+	} else if len(nickname) < 2 {
+		nickname = "Player"
+	}
+
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WS upgrade error: %v", err)
+		if h.AuditLogger != nil {
+			h.AuditLogger.Log(security.EventWSRejected, security.SeverityWarn, clientIP, userID, roomID, "WS handshake rejected", map[string]interface{}{"error": err.Error()})
+		}
 		return
+	}
+
+	if h.AuditLogger != nil {
+		h.AuditLogger.Log(security.EventWSConnect, security.SeverityInfo, clientIP, userID, roomID, "WS client connected", map[string]interface{}{"client_type": clientType})
 	}
 
 	client := &Client{

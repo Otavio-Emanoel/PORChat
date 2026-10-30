@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/porchat/api/internal/chat"
+	"github.com/porchat/api/internal/security"
 )
 
 type InboundMessage struct {
@@ -179,12 +180,11 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 				return
 			}
 
-			// Clamp message length to 1000 characters to prevent payload flooding
-			runes := []rune(trimmed)
-			if len(runes) > 1000 {
-				runes = runes[:1000]
+			// Validate and sanitize chat message content, stripping XSS vectors & zero-width bypasses
+			sanitizedContent, err := security.ValidateChatMessage(trimmed, 1, 2000)
+			if err != nil {
+				return
 			}
-			sanitizedContent := string(runes)
 
 			chatMsg := &chat.ChatMessage{
 				ID:        uuid.New().String(),
@@ -311,11 +311,7 @@ func (h *Hub) BroadcastToRoom(roomID string, env *Envelope) {
 
 	if clients, ok := h.rooms[roomID]; ok {
 		for c := range clients {
-			select {
-			case c.Send <- bytes:
-			default:
-				log.Printf("Client send buffer full for user: %s", c.Nickname)
-			}
+			c.SafeSend(bytes)
 		}
 	}
 }
@@ -334,11 +330,7 @@ func (h *Hub) BroadcastToRoomExcept(roomID string, env *Envelope, except *Client
 			if c == except {
 				continue
 			}
-			select {
-			case c.Send <- bytes:
-			default:
-				log.Printf("Client send buffer full for user: %s", c.Nickname)
-			}
+			c.SafeSend(bytes)
 		}
 	}
 }
@@ -355,10 +347,7 @@ func (h *Hub) BroadcastToClientType(roomID string, clientType string, env *Envel
 	if clients, ok := h.rooms[roomID]; ok {
 		for c := range clients {
 			if c.ClientType == clientType {
-				select {
-				case c.Send <- bytes:
-				default:
-				}
+				c.SafeSend(bytes)
 			}
 		}
 	}
@@ -369,10 +358,7 @@ func (h *Hub) sendToClient(c *Client, env *Envelope) {
 	if err != nil {
 		return
 	}
-	select {
-	case c.Send <- bytes:
-	default:
-	}
+	c.SafeSend(bytes)
 }
 
 func (h *Hub) BroadcastRoomDeleted(roomID string) {
@@ -404,4 +390,34 @@ func (h *Hub) GetStats() map[string]interface{} {
 		"total_connections": totalConns,
 		"unique_online":     len(uniqueUsers),
 	}
+}
+
+// GetRoomClients returns a slice copy of connected clients in a specific room.
+func (h *Hub) GetRoomClients(roomID string) []*Client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	clientsMap, ok := h.rooms[roomID]
+	if !ok {
+		return nil
+	}
+
+	result := make([]*Client, 0, len(clientsMap))
+	for c := range clientsMap {
+		result = append(result, c)
+	}
+	return result
+}
+
+// Close gracefully terminates all client connections and cleans up rooms.
+func (h *Hub) Close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, clients := range h.rooms {
+		for c := range clients {
+			c.Close()
+		}
+	}
+	h.rooms = make(map[string]map[*Client]bool)
 }

@@ -34,7 +34,24 @@ func (c *Client) Close() {
 	if !c.closed {
 		c.closed = true
 		close(c.Send)
-		_ = c.Conn.Close()
+		if c.Conn != nil {
+			_ = c.Conn.Close()
+		}
+	}
+}
+
+// SafeSend sends bytes to c.Send without panicking if the client was concurrently closed.
+func (c *Client) SafeSend(bytes []byte) bool {
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if c.closed {
+		return false
+	}
+	select {
+	case c.Send <- bytes:
+		return true
+	default:
+		return false
 	}
 }
 
