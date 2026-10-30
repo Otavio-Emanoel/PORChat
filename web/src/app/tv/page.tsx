@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Tv, Sparkles, ArrowRight, Play, ArrowLeft } from 'lucide-react';
+import { Tv, ArrowRight, Play, ArrowLeft, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
 
 interface RoomData {
   id: string;
@@ -14,15 +15,28 @@ interface RoomData {
 export default function TVLobbyPage() {
   const router = useRouter();
   const [code, setCode] = useState('');
-  const [rooms, setRooms] = useState<RoomData[]>([]);
+  const [userRooms, setUserRooms] = useState<RoomData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const user = getStoredUser();
+    if (!user) return;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
-    fetch(`${apiBase}/api/rooms`)
-      .then((res) => res.json())
-      .then((data) => setRooms(data))
+    const token = getStoredToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${apiBase}/api/rooms?user=${encodeURIComponent(user.nickname)}`, { headers })
+      .then((res) => {
+        if (!res.ok) return [];
+        return res.json();
+      })
+      .then((data: RoomData[]) => {
+        if (Array.isArray(data)) {
+          setUserRooms(data);
+        }
+      })
       .catch((err) => console.error(err));
   }, []);
 
@@ -38,7 +52,7 @@ export default function TVLobbyPage() {
       const clean = code.trim().toUpperCase();
       const res = await fetch(`${apiBase}/api/rooms/code/${clean}`);
       if (!res.ok) {
-        throw new Error('Nenhuma sala encontrada com este código.');
+        throw new Error('Nenhum grupo encontrado com este código.');
       }
       const room = await res.json();
       router.push(`/tv/${room.id}`);
@@ -51,10 +65,6 @@ export default function TVLobbyPage() {
 
   return (
     <div className="min-h-screen bg-surface-tv text-white flex flex-col justify-between font-body p-6 sm:p-12 relative overflow-hidden">
-      {/* Background glow effects */}
-      <div className="absolute top-0 -left-40 w-96 h-96 bg-brand-primary/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 -right-40 w-96 h-96 bg-brand-action/20 rounded-full blur-3xl pointer-events-none" />
-
       {/* Header */}
       <header className="flex items-center justify-between z-10">
         <Link
@@ -64,23 +74,23 @@ export default function TVLobbyPage() {
           <ArrowLeft className="w-5 h-5" />
           <span className="text-sm font-semibold">Voltar para o Início</span>
         </Link>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-xs font-bold text-brand-reward">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-xs font-bold text-brand-reward border border-white/10">
           <Tv className="w-4 h-4" />
-          <span>PORChat TV Mode Stage</span>
+          <span>PORChat Palco TV</span>
         </div>
       </header>
 
       {/* Center Stage Box */}
-      <main className="max-w-xl mx-auto w-full text-center z-10 my-auto py-12">
-        <div className="w-20 h-20 rounded-3xl bg-brand-primary/20 text-brand-reward flex items-center justify-center mx-auto mb-6 shadow-xl border border-white/10">
-          <Tv className="w-10 h-10" />
+      <main className="max-w-xl mx-auto w-full text-center z-10 my-auto py-8">
+        <div className="w-16 h-16 rounded-2xl bg-brand-primary/20 text-brand-reward flex items-center justify-center mx-auto mb-6 shadow-xl border border-white/10">
+          <Tv className="w-8 h-8" />
         </div>
 
-        <h1 className="font-heading text-4xl sm:text-5xl font-bold tracking-tight mb-3">
+        <h1 className="font-heading text-4xl sm:text-5xl font-extrabold tracking-tight mb-3">
           Conectar Telão
         </h1>
         <p className="text-sm sm:text-base text-gray-400 mb-8 max-w-md mx-auto">
-          Digite o código da sala de 4 a 8 dígitos para projetar o palco do jogo na TV ou telão.
+          Digite o código PIN do grupo para projetar a rodada de debate ou quiz na Smart TV.
         </p>
 
         {error && (
@@ -100,31 +110,31 @@ export default function TVLobbyPage() {
           <button
             type="submit"
             disabled={loading || !code.trim()}
-            className="px-6 py-4 rounded-2xl bg-brand-action hover:bg-brand-action/90 text-white font-heading font-bold text-base shadow-lg transition-all tactile-btn flex items-center justify-center gap-2 disabled:opacity-50"
+            className="px-6 py-4 rounded-2xl bg-brand-action hover:bg-brand-action/90 text-white font-heading font-bold text-base shadow-lg transition-all tactile-btn flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
           >
             {loading ? (
               <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>
-                <span>Entrar</span>
+                <span>Conectar</span>
                 <ArrowRight className="w-5 h-5" />
               </>
             )}
           </button>
         </form>
 
-        {/* Quick Room Selectors */}
-        {rooms.length > 0 && (
+        {/* User's Authorized Groups */}
+        {userRooms.length > 0 && (
           <div className="max-w-md mx-auto text-left">
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block text-center mb-3">
-              Ou escolha uma sala pública ativa:
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block text-center mb-3">
+              Seus Grupos Conectados:
             </span>
             <div className="space-y-2">
-              {rooms.map((r) => (
+              {userRooms.map((r) => (
                 <button
                   key={r.id}
                   onClick={() => router.push(`/tv/${r.id}`)}
-                  className="w-full p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between transition-all group"
+                  className="w-full p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between transition-all group cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-xl bg-brand-primary/20 text-brand-primary flex items-center justify-center font-heading font-bold text-xs group-hover:bg-brand-primary group-hover:text-white transition-colors">
@@ -146,8 +156,9 @@ export default function TVLobbyPage() {
       </main>
 
       {/* Footer */}
-      <footer className="text-center text-xs text-gray-600 z-10">
-        PORChat TV Stage • Desenvolvido para telas grandes, projetores e TVs inteligentes
+      <footer className="text-center text-xs text-gray-500 z-10 flex items-center justify-center gap-2">
+        <ShieldCheck className="w-4 h-4 text-emerald-500" />
+        <span>PORChat TV Stage • Exclusivo para membros e participantes autorizados</span>
       </footer>
     </div>
   );

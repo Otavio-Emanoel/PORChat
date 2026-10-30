@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Sparkles, Smile, Check } from 'lucide-react';
+import { X, Smile, Check, User as UserIcon } from 'lucide-react';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -15,28 +15,28 @@ interface ProfileModalProps {
 }
 
 export const AVATAR_OPTIONS = [
-  { emoji: '👑', label: 'Líder / Coroa' },
-  { emoji: '🦁', label: 'Leão Feroz' },
-  { emoji: '🤖', label: 'Robô Dev' },
-  { emoji: '🚀', label: 'Foguete' },
-  { emoji: '🦊', label: 'Raposa Ágil' },
-  { emoji: '⚡', label: 'Raio Veloz' },
-  { emoji: '🥑', label: 'Abacate Zen' },
-  { emoji: '🎮', label: 'Gamer Pro' },
+  { emoji: '👑', label: 'Fundador' },
+  { emoji: '⚡', label: 'Eletrizante' },
+  { emoji: '🎯', label: 'Estrategista' },
+  { emoji: '🏆', label: 'Campeão' },
+  { emoji: '🔥', label: 'Competitivo' },
+  { emoji: '🎧', label: 'Ouvinte' },
+  { emoji: '⭐', label: 'Estrela' },
+  { emoji: '🚀', label: 'Inovador' },
 ];
 
 export const STATUS_PRESETS = [
-  'Pronto pro debate! ⚔️',
-  'Focado no Quiz 🧠',
-  'Só observando a treta 🍿',
-  'No controle do jogo 📱',
-  'Na torcida pelo Lado A 🔥',
-  'Café primeiro, argumentos depois ☕',
+  'Disponível',
+  'Em jogo no Telão',
+  'Ocupado',
+  'No computador',
+  'Apenas mensagens',
+  'Ausente',
 ];
 
 export function ProfileModal({ isOpen, onClose, currentUser, onSave }: ProfileModalProps) {
   const [selectedAvatar, setSelectedAvatar] = useState(currentUser.avatar_emoji || '👑');
-  const [statusText, setStatusText] = useState(currentUser.status_text || 'Pronto pro debate! ⚔️');
+  const [statusText, setStatusText] = useState(currentUser.status_text || 'Disponível');
 
   if (!isOpen) return null;
 
@@ -56,9 +56,9 @@ export function ProfileModal({ isOpen, onClose, currentUser, onSave }: ProfileMo
         <div className="flex items-center justify-between pb-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-xl bg-brand-primary/10 text-brand-primary flex items-center justify-center">
-              <Smile className="w-4 h-4" />
+              <UserIcon className="w-4 h-4" />
             </span>
-            <h2 className="font-heading text-lg font-bold text-ink-main">Editar Perfil & Avatar</h2>
+            <h2 className="font-heading text-lg font-bold text-ink-main">Editar Perfil & Status</h2>
           </div>
           <button
             onClick={onClose}
@@ -71,10 +71,10 @@ export function ProfileModal({ isOpen, onClose, currentUser, onSave }: ProfileMo
         <form onSubmit={handleSubmit} className="mt-5 space-y-5">
           {/* Avatar Preview */}
           <div className="flex flex-col items-center justify-center">
-            <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-brand-primary/20 via-brand-reward/20 to-brand-mint/20 flex items-center justify-center text-4xl shadow-inner border-2 border-brand-primary/30 relative">
+            <div className="w-20 h-20 rounded-3xl bg-brand-primary/10 flex items-center justify-center text-4xl shadow-inner border-2 border-brand-primary/30 relative">
               <span>{selectedAvatar}</span>
               <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-brand-primary text-white flex items-center justify-center text-[10px] shadow-xs">
-                <Sparkles className="w-3 h-3" />
+                <Check className="w-3 h-3" />
               </span>
             </div>
             <span className="text-sm font-bold text-ink-main mt-2">{currentUser.nickname}</span>

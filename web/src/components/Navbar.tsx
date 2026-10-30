@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Tv, LogIn, LogOut, PlusCircle, Sparkles } from 'lucide-react';
+import { Tv, LogIn, LogOut, PlusCircle, ShieldCheck } from 'lucide-react';
 import type { User } from '@/lib/auth';
 
 interface NavbarProps {
@@ -14,20 +14,20 @@ interface NavbarProps {
 
 export function Navbar({ currentUser, onOpenAuth, onOpenCreateRoom, onLogout }: NavbarProps) {
   return (
-    <header className="sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md border-b border-gray-100 font-body transition-all">
+    <header className="sticky top-0 z-40 w-full bg-white/90 backdrop-blur-md border-b border-gray-200/80 font-body transition-all">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
         {/* Brand Logo */}
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-primary to-purple-700 flex items-center justify-center text-white font-heading text-2xl shadow-md group-hover:scale-105 transition-transform">
+          <div className="w-10 h-10 rounded-2xl bg-brand-primary flex items-center justify-center text-white font-heading font-bold text-xl shadow-xs group-hover:scale-105 transition-transform">
             P
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-heading text-2xl tracking-tight text-ink-main leading-none">
+              <span className="font-heading text-xl font-bold tracking-tight text-ink-main leading-none">
                 PORChat
               </span>
-              <span className="px-2 py-0.5 rounded-full bg-brand-primary/10 text-brand-primary font-bold text-[10px] tracking-wide uppercase">
-                Party Hub
+              <span className="px-2 py-0.5 rounded-md bg-brand-primary/10 text-brand-primary font-bold text-[10px] tracking-wide uppercase">
+                Privado
               </span>
             </div>
             <span className="text-[11px] text-ink-muted block mt-0.5 font-medium">
@@ -40,25 +40,26 @@ export function Navbar({ currentUser, onOpenAuth, onOpenCreateRoom, onLogout }: 
         <nav className="hidden md:flex items-center gap-7">
           <a
             href="#como-funciona"
-            className="text-sm font-semibold text-ink-muted hover:text-brand-primary transition-colors"
+            className="text-xs font-bold text-ink-muted hover:text-brand-primary transition-colors uppercase tracking-wider"
           >
             Como Funciona
           </a>
           <a
             href="#modos-de-jogo"
-            className="text-sm font-semibold text-ink-muted hover:text-brand-primary transition-colors"
+            className="text-xs font-bold text-ink-muted hover:text-brand-primary transition-colors uppercase tracking-wider"
           >
             Modos de Jogo
           </a>
           <a
-            href="#salas-ativas"
-            className="text-sm font-semibold text-ink-muted hover:text-brand-primary transition-colors"
+            href="#privacidade-seguranca"
+            className="text-xs font-bold text-ink-muted hover:text-brand-primary transition-colors uppercase tracking-wider flex items-center gap-1"
           >
-            Salas Ativas
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Privacidade</span>
           </a>
           <Link
             href="/tv"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-tv text-white text-xs font-bold hover:bg-surface-tv/90 shadow-sm transition-all tactile-btn"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-tv text-white text-xs font-bold hover:bg-surface-tv/90 shadow-2xs transition-all tactile-btn"
           >
             <Tv className="w-3.5 h-3.5 text-brand-reward" />
             <span>Abrir Telão (TV)</span>
@@ -70,10 +71,10 @@ export function Navbar({ currentUser, onOpenAuth, onOpenCreateRoom, onLogout }: 
           <button
             type="button"
             onClick={onOpenCreateRoom}
-            className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-primary text-white text-sm font-bold shadow-md hover:bg-brand-primary/90 transition-all tactile-btn"
+            className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-primary text-white text-xs font-bold shadow-xs hover:bg-brand-primary/90 transition-all tactile-btn cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
-            <span>Criar Sala</span>
+            <span>Novo Grupo</span>
           </button>
 
           {currentUser ? (

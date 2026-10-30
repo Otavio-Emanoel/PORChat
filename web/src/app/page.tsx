@@ -13,7 +13,6 @@ import {
   Swords,
   Zap,
   Users,
-  Sparkles,
   ArrowRight,
   Flame,
   Award,
@@ -125,17 +124,12 @@ export default function LandingPage() {
 
       {/* Hero Section */}
       <section className="relative overflow-hidden pt-12 pb-20 lg:pt-20 lg:pb-28">
-        {/* Playful Background Elements */}
-        <div className="absolute top-1/4 -left-20 w-80 h-80 bg-brand-primary/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute top-1/3 -right-20 w-96 h-96 bg-brand-action/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-10 left-1/3 w-64 h-64 bg-brand-reward/15 rounded-full blur-2xl pointer-events-none" />
-
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto">
             {/* Feature Badges */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-primary/10 text-brand-primary text-xs font-bold mb-6 border border-brand-primary/15 shadow-xs">
-              <Sparkles className="w-4 h-4 text-brand-primary" />
-              <span>O Novo Ecossistema Social de Conversas & Party Games</span>
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold mb-6 border border-emerald-200/60 shadow-2xs">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span>Comunicação Privada & Party Games em Tempo Real</span>
             </div>
 
             {/* Headline */}
@@ -155,7 +149,7 @@ export default function LandingPage() {
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-brand-primary/10 border border-brand-primary/20">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-2xl bg-brand-primary text-white font-heading font-bold text-lg flex items-center justify-center shadow-xs">
-                        {currentUser.nickname[0].toUpperCase()}
+                        {currentUser.nickname.slice(0, 2).toUpperCase()}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
@@ -169,7 +163,7 @@ export default function LandingPage() {
                     </div>
                     <button
                       onClick={handleLogout}
-                      className="text-xs text-red-500 hover:underline font-semibold"
+                      className="text-xs text-red-500 hover:underline font-semibold cursor-pointer"
                     >
                       Trocar Conta
                     </button>
@@ -178,10 +172,10 @@ export default function LandingPage() {
                   <button
                     type="button"
                     onClick={() => router.push('/room/default')}
-                    className="w-full py-4 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base shadow-lg tactile-btn transition-all flex items-center justify-center gap-3"
+                    className="w-full py-4 px-6 rounded-2xl bg-brand-primary hover:bg-brand-primary/90 text-white font-bold text-base shadow-lg tactile-btn transition-all flex items-center justify-center gap-3 cursor-pointer"
                   >
                     <MessageSquare className="w-5 h-5" />
-                    <span>Abrir Minhas Conversas Privadas 💬</span>
+                    <span>Abrir Minhas Conversas Privadas</span>
                   </button>
 
                   <div className="pt-3 border-t border-gray-100">
@@ -199,14 +193,14 @@ export default function LandingPage() {
                       <button
                         onClick={() => handleJoinByCode('chat')}
                         disabled={joinLoading}
-                        className="px-4 py-2.5 rounded-xl bg-brand-primary hover:bg-brand-primary/90 text-white font-bold text-xs shadow-xs"
+                        className="px-4 py-2.5 rounded-xl bg-brand-primary hover:bg-brand-primary/90 text-white font-bold text-xs shadow-xs cursor-pointer"
                       >
                         Participar
                       </button>
                       <button
                         onClick={() => handleJoinByCode('tv')}
                         disabled={joinLoading}
-                        className="px-4 py-2.5 rounded-xl bg-surface-tv hover:bg-surface-tv/90 text-white font-bold text-xs shadow-xs flex items-center gap-1.5"
+                        className="px-4 py-2.5 rounded-xl bg-surface-tv hover:bg-surface-tv/90 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer"
                       >
                         <Tv className="w-3.5 h-3.5 text-brand-reward" />
                         <span>Telão</span>
@@ -219,7 +213,7 @@ export default function LandingPage() {
                   <div className="text-center sm:text-left mb-2">
                     <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">
                       <ShieldCheck className="w-4 h-4" />
-                      <span>100% Privado — Como no WhatsApp</span>
+                      <span>100% Privado — Modelo WhatsApp</span>
                     </div>
                     <h3 className="font-heading text-xl font-bold text-ink-main">
                       Acesse com sua Conta
@@ -238,37 +232,43 @@ export default function LandingPage() {
                   {/* 1-Click Fast Profile Switcher */}
                   <div>
                     <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-2">
-                      ⚡ Seleção Rápida de Perfil (1 Clique):
+                      Perfis de Demonstração (1 Clique):
                     </span>
                     <div className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => handleQuickLogin('Otavio')}
-                        className="p-3 rounded-2xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-left transition-all hover:scale-[1.02] shadow-2xs"
+                        className="p-3 rounded-2xl bg-purple-50/70 hover:bg-purple-100/70 border border-purple-200/60 text-left transition-all hover:scale-[1.02] shadow-2xs group cursor-pointer"
                       >
-                        <div className="text-lg mb-1">👑</div>
+                        <div className="w-8 h-8 rounded-xl bg-brand-primary text-white font-heading font-bold text-xs flex items-center justify-center mb-1.5 shadow-2xs group-hover:scale-105 transition-transform">
+                          OE
+                        </div>
                         <div className="font-bold text-xs text-purple-900">Otavio</div>
-                        <div className="text-[10px] text-purple-600 truncate">otavio@...</div>
+                        <div className="text-[10px] text-purple-600 truncate">otavio@porchat.com</div>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleQuickLogin('Pedro')}
-                        className="p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-left transition-all hover:scale-[1.02] shadow-2xs"
+                        className="p-3 rounded-2xl bg-rose-50/70 hover:bg-rose-100/70 border border-rose-200/60 text-left transition-all hover:scale-[1.02] shadow-2xs group cursor-pointer"
                       >
-                        <div className="text-lg mb-1">⚔️</div>
+                        <div className="w-8 h-8 rounded-xl bg-brand-action text-white font-heading font-bold text-xs flex items-center justify-center mb-1.5 shadow-2xs group-hover:scale-105 transition-transform">
+                          PR
+                        </div>
                         <div className="font-bold text-xs text-rose-900">Pedro</div>
-                        <div className="text-[10px] text-rose-600 truncate">pedro@...</div>
+                        <div className="text-[10px] text-rose-600 truncate">pedro@porchat.com</div>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleQuickLogin('Raul')}
-                        className="p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-left transition-all hover:scale-[1.02] shadow-2xs"
+                        className="p-3 rounded-2xl bg-teal-50/70 hover:bg-teal-100/70 border border-teal-200/60 text-left transition-all hover:scale-[1.02] shadow-2xs group cursor-pointer"
                       >
-                        <div className="text-lg mb-1">⚡</div>
-                        <div className="font-bold text-xs text-amber-900">Raul</div>
-                        <div className="text-[10px] text-amber-600 truncate">raul@...</div>
+                        <div className="w-8 h-8 rounded-xl bg-brand-mint text-white font-heading font-bold text-xs flex items-center justify-center mb-1.5 shadow-2xs group-hover:scale-105 transition-transform">
+                          RL
+                        </div>
+                        <div className="font-bold text-xs text-teal-900">Raul</div>
+                        <div className="text-[10px] text-teal-600 truncate">raul@porchat.com</div>
                       </button>
                     </div>
                   </div>

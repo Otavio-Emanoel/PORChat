@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Lock, Mail, User as UserIcon, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Lock, Mail, User as UserIcon, CheckCircle2, AlertCircle } from 'lucide-react';
 import { loginWithCredentials, registerWithCredentials, loginDemoUser, type User } from '@/lib/auth';
 
 interface AuthModalProps {
@@ -63,8 +63,8 @@ export function AuthModal({ isOpen, onClose, onSuccess, initialMode = 'login' }:
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden font-body">
-        {/* Top Gradient Banner */}
-        <div className="h-3 bg-gradient-to-r from-brand-primary via-brand-action to-brand-reward" />
+        {/* Top Header Accent */}
+        <div className="h-2 bg-brand-primary" />
 
         {/* Close Button */}
         <button
@@ -78,11 +78,11 @@ export function AuthModal({ isOpen, onClose, onSuccess, initialMode = 'login' }:
         <div className="p-8">
           {/* Header */}
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-primary/10 text-brand-primary mb-3">
-              <Sparkles className="w-7 h-7" />
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-brand-primary/10 text-brand-primary mb-3">
+              <Lock className="w-6 h-6" />
             </div>
-            <h2 className="font-heading text-2xl text-ink-main tracking-tight">
-              {mode === 'login' ? 'Bem-vindo ao PORChat' : 'Crie sua Conta'}
+            <h2 className="font-heading text-2xl font-bold text-ink-main tracking-tight">
+              {mode === 'login' ? 'Acesso ao PORChat' : 'Criar Nova Conta'}
             </h2>
             <p className="text-xs text-ink-muted mt-1">
               {mode === 'login'

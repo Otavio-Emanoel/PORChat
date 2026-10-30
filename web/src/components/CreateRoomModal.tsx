@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Sparkles, Plus, AlertCircle } from 'lucide-react';
+import { X, Plus, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface CreateRoomModalProps {
@@ -67,8 +67,8 @@ export function CreateRoomModal({ isOpen, onClose, currentUserNickname }: Create
 
         <div className="p-8">
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-primary/10 text-brand-primary mb-3">
-              <Sparkles className="w-7 h-7" />
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-brand-primary/10 text-brand-primary mb-3">
+              <Plus className="w-6 h-6" />
             </div>
             <h2 className="font-heading text-2xl text-ink-main tracking-tight">
               Criar Nova Sala

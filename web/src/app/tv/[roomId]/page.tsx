@@ -7,7 +7,6 @@ import { launchConfetti } from '@/lib/confetti';
 import { QRCodeDisplay } from '@/components/QRCodeDisplay';
 import {
   Flame,
-  Sparkles,
   Trophy,
   Users,
   Swords,
@@ -24,6 +23,7 @@ import {
   Smartphone,
   Award,
   Clock,
+  Tv,
 } from 'lucide-react';
 
 interface Particle {
@@ -313,8 +313,8 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             {/* Left: Instructions */}
             <div className="text-left space-y-4">
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-brand-reward/20 text-brand-reward text-xs font-bold uppercase tracking-wider">
-                <Sparkles size={14} />
-                <span>Lobby Aberto para Entrada</span>
+                <Tv size={14} />
+                <span>Palco Aberto • Aguardando Início</span>
               </div>
               <h2 className="text-3xl md:text-5xl font-black leading-tight text-white">
                 Entre no Jogo pelo Celular!

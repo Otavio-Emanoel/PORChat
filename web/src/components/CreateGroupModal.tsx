@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Users, Check, AlertCircle, Sparkles } from 'lucide-react';
+import { X, Users, Check, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { getStoredToken } from '@/lib/auth';
 
@@ -198,7 +198,7 @@ export function CreateGroupModal({ isOpen, onClose, currentUserNickname }: Creat
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4" />
+                  <Users className="w-4 h-4" />
                   Criar Grupo
                 </>
               )}
