@@ -124,6 +124,102 @@ func (e *DebateEngine) GetStateSnapshot() interface{} {
 	}
 }
 
+func (e *DebateEngine) GetPhase() DebatePhase {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.phase
+}
+
+func (e *DebateEngine) GetState() *DebateState {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.state
+}
+
+func (e *DebateEngine) StartDebate(topic, category, debaterAID, debaterBID string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.startDebate(topic, category, debaterAID, debaterBID, nil)
+}
+
+func (e *DebateEngine) SkipPhase() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.onPhaseTimeout(e.phase)
+}
+
+func (e *DebateEngine) Pause() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.isPaused = true
+	if e.state != nil {
+		e.state.IsPaused = true
+	}
+	e.broadcastState()
+}
+
+func (e *DebateEngine) Resume() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.isPaused = false
+	if e.state != nil {
+		e.state.IsPaused = false
+	}
+	e.broadcastState()
+}
+
+func (e *DebateEngine) Abort() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.phase = PhaseChat
+	e.broadcastState()
+}
+
+func (e *DebateEngine) SubmitArgument(userID, argument string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.state == nil || argument == "" {
+		return
+	}
+	if e.state.DebaterA != nil && (userID == e.state.DebaterA.ID || userID == e.state.DebaterA.Nickname) {
+		e.state.DebaterA.Argument = argument
+	} else if e.state.DebaterB != nil && (userID == e.state.DebaterB.ID || userID == e.state.DebaterB.Nickname) {
+		e.state.DebaterB.Argument = argument
+	} else {
+		if e.state.DebaterA.Argument == "" {
+			e.state.DebaterA.Argument = argument
+		} else {
+			e.state.DebaterB.Argument = argument
+		}
+	}
+	e.broadcastState()
+}
+
+func (e *DebateEngine) CastVote(userID, choice string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.phase != PhaseVoting || (choice != "side_a" && choice != "side_b") || e.state == nil {
+		return
+	}
+	prevChoice, alreadyVoted := e.voters[userID]
+	if alreadyVoted {
+		e.state.VotesCount[prevChoice]--
+	}
+	e.voters[userID] = choice
+	e.state.VotesCount[choice]++
+	if e.state.DebaterA != nil {
+		e.state.DebaterA.Votes = e.state.VotesCount["side_a"]
+	}
+	if e.state.DebaterB != nil {
+		e.state.DebaterB.Votes = e.state.VotesCount["side_b"]
+	}
+	e.broadcastState()
+}
+
+func (e *DebateEngine) TriggerReaction(emoji string) {
+	e.recordReaction(emoji)
+}
+
 func (e *DebateEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
