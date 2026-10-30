@@ -251,7 +251,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       debater_a_id: 'debater-a',
       debater_b_id: 'debater-b',
     });
-    Alert.alert('⚖️ Debate Iniciado!', 'O modo debate começou nesta sala. Abra o telão ou controle!');
+    Alert.alert('Debate Iniciado!', 'O modo debate começou nesta sala. Abra o telão ou controle!');
   };
 
   // Launch Quiz inside current group
@@ -259,7 +259,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     sendAction('game:start', {
       game_type: 'quiz',
     });
-    Alert.alert('⚡ Quiz Relâmpago Iniciado!', 'Preparem os buzzers!');
+    Alert.alert('Quiz Relâmpago Iniciado!', 'Preparem os buzzers!');
   };
 
   // Select a room from list
@@ -459,7 +459,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     if (isSystem) {
       return (
         <View style={styles.systemMessageContainer}>
-          <Text style={styles.systemMessageText}>🔒 {item.content}</Text>
+          <Text style={styles.systemMessageText}>{item.content}</Text>
         </View>
       );
     }
@@ -474,10 +474,10 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               'Reagir à mensagem',
               item.content.length > 50 ? `${item.content.slice(0, 50)}...` : item.content,
               [
-                { text: '❤️ Coração', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: '❤️' }) },
-                { text: '🔥 Fogo', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: '🔥' }) },
-                { text: '😂 Risada', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: '😂' }) },
-                { text: '👑 Coroa', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: '👑' }) },
+                { text: 'Curtir', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'like' }) },
+                { text: 'Amei', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'heart' }) },
+                { text: 'Riso', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'smile' }) },
+                { text: 'Destaque', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'star' }) },
                 { text: 'Cancelar', style: 'cancel' },
               ]
             );
@@ -527,7 +527,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         {!isConnected && (
           <View style={styles.offlineBanner}>
             <Text style={styles.offlineBannerText}>
-              ⚠️ Sem conexão com o servidor. Reconectando...
+              Sem conexão com o servidor. Reconectando...
             </Text>
           </View>
         )}
@@ -548,7 +548,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               onPress={() => setShowProfileModal(true)}
               activeOpacity={0.8}
             >
-              <Text style={styles.profileBtnText}>👤 {nickname}</Text>
+              <Text style={styles.profileBtnText}>{nickname}</Text>
             </TouchableOpacity>
 
             {/* Room PIN Code Button */}
@@ -570,7 +570,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             activeOpacity={0.7}
           >
             <Text style={[styles.tabLabel, activeTab === 'all' && styles.activeTabLabel]}>
-              💬 Conversas ({roomList.length})
+              Conversas ({roomList.length})
             </Text>
           </TouchableOpacity>
 
@@ -580,7 +580,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             activeOpacity={0.7}
           >
             <Text style={[styles.tabLabel, activeTab === 'groups' && styles.activeTabLabel]}>
-              👥 Grupos ({roomList.filter((r) => r.is_group).length})
+              Grupos ({roomList.filter((r) => r.is_group).length})
             </Text>
           </TouchableOpacity>
 
@@ -590,7 +590,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             activeOpacity={0.7}
           >
             <Text style={[styles.tabLabel, activeTab === 'contacts' && styles.activeTabLabel]}>
-              👤 Contatos ({contacts.length})
+              Contatos ({contacts.length})
             </Text>
           </TouchableOpacity>
         </View>
@@ -675,7 +675,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                     ]}
                   >
                     <Text style={styles.chatAvatarText}>
-                      {isGroup ? '👥' : item.name.slice(0, 2).toUpperCase()}
+                      {item.name.slice(0, 2).toUpperCase()}
                     </Text>
                   </View>
                   <View style={styles.chatInfo}>
@@ -688,8 +688,8 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                     <Text style={styles.chatPreview} numberOfLines={1}>
                       {item.last_message ||
                         (isGroup
-                          ? `👥 ${item.members?.length || 3} participantes • Toque para abrir`
-                          : '💬 Conversa direta • Toque para abrir')}
+                          ? `${item.members?.length || 3} participantes • Toque para abrir`
+                          : 'Conversa direta • Toque para abrir')}
                     </Text>
                   </View>
                   <Text style={styles.chatArrow}>›</Text>
@@ -785,7 +785,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 activeOpacity={0.8}
               >
                 <Text style={styles.primaryModalBtnText}>
-                  {isCreatingGroup ? 'Criando Grupo...' : 'Criar Grupo 🚀'}
+                  {isCreatingGroup ? 'Criando Grupo...' : 'Criar Grupo'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -801,28 +801,10 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>🔒 Conta & Acesso Privado</Text>
+              <Text style={styles.modalTitle}>Conta & Acesso</Text>
               <Text style={styles.modalSubtitle}>
-                Selecione sua conta para acessar suas conversas e grupos privados:
+                Defina seu apelido de identificação no chat:
               </Text>
-
-              <View style={styles.demoButtonsRow}>
-                {['Otavio', 'Pedro', 'Raul'].map((name) => (
-                  <TouchableOpacity
-                    key={name}
-                    style={[styles.demoBtn, nickname === name && styles.demoBtnActive]}
-                    onPress={() => {
-                      setNickname(name);
-                      setTempNick(name);
-                      setShowProfileModal(false);
-                    }}
-                  >
-                    <Text style={[styles.demoBtnText, nickname === name && styles.demoBtnTextActive]}>
-                      {name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
 
               <TextInput
                 style={[styles.modalInput, { marginTop: 12 }]}
@@ -887,7 +869,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                   } catch (e) {}
                 }}
               >
-                <Text style={styles.pasteCodeBtnText}>📋 Colar Código</Text>
+                <Text style={styles.pasteCodeBtnText}>Colar Código</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.primaryModalBtn} onPress={handleJoinByPin}>
@@ -918,7 +900,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       {!isConnected && (
         <View style={styles.offlineBanner}>
           <Text style={styles.offlineBannerText}>
-            ⚠️ Sem conexão com o servidor. Reconectando...
+            Sem conexão com o servidor. Reconectando...
           </Text>
         </View>
       )}
@@ -960,8 +942,8 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           </Text>
           <Text style={styles.chatViewSubtitle} numberOfLines={1}>
             {isCurrentGroup
-              ? `👥 ${currentRoomInfo?.members?.join(', ') || 'Pedro, Otavio, Raul'}`
-              : '💬 Conversa Direta'}
+              ? `${currentRoomInfo?.members?.join(', ') || 'Participantes'}`
+              : 'Conversa Direta'}
           </Text>
         </View>
 
@@ -974,7 +956,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 onPress={handleStartDebate}
                 activeOpacity={0.7}
               >
-                <Text style={styles.gameActionMiniText}>⚖️ Debate</Text>
+                <Text style={styles.gameActionMiniText}>Debate</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -982,7 +964,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 onPress={handleStartQuiz}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.gameActionMiniText, { color: '#D97706' }]}>⚡ Quiz</Text>
+                <Text style={[styles.gameActionMiniText, { color: '#D97706' }]}>Quiz</Text>
               </TouchableOpacity>
             </>
           )}
@@ -995,7 +977,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 onPress={onOpenController}
                 activeOpacity={0.85}
               >
-                <Text style={styles.controllerCTAText}>🎮 JOGAR</Text>
+                <Text style={styles.controllerCTAText}>JOGAR</Text>
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -1024,10 +1006,9 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           contentContainerStyle={styles.messageList}
           ListEmptyComponent={
             <View style={styles.emptyMessagesContainer}>
-              <Text style={styles.emptyMessagesEmoji}>💬</Text>
               <Text style={styles.emptyMessagesTitle}>Nenhuma mensagem ainda</Text>
               <Text style={styles.emptyMessagesSubtitle}>
-                Envie uma mensagem abaixo ou inicie um jogo no botão acima!
+                Envie uma mensagem abaixo para iniciar a conversa!
               </Text>
             </View>
           }
@@ -1036,7 +1017,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               <View style={styles.typingRow}>
                 {Object.values(typingUsers).map((u) => (
                   <Text key={u.nickname} style={styles.typingText}>
-                    ✍️ {u.nickname} está digitando...
+                    {u.nickname} está digitando...
                   </Text>
                 ))}
               </View>
@@ -1044,22 +1025,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           }
         />
 
-        {/* Quick Emoji Reaction Bar (Item 21) */}
-        <View style={styles.reactionBar}>
-          <Text style={styles.reactionBarLabel}>Reagir ao vivo no telão:</Text>
-          <View style={styles.reactionRow}>
-            {['🔥', '💀', '🍅', '👏', '🤯', '👑', '🎯'].map((emoji) => (
-              <TouchableOpacity
-                key={emoji}
-                style={styles.reactionButton}
-                onPress={() => handleTriggerReaction(emoji)}
-                activeOpacity={0.6}
-              >
-                <Text style={styles.reactionEmoji}>{emoji}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
 
         {/* Message Input Bar */}
         <View style={styles.inputContainer}>
@@ -1668,29 +1633,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 13,
   },
-  demoButtonsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
-  },
-  demoBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    backgroundColor: '#F1F3F5',
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  demoBtnActive: {
-    backgroundColor: colors.brand.primary,
-  },
-  demoBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#495057',
-  },
-  demoBtnTextActive: {
-    color: '#FFF',
-  },
+
   messageFooterRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',

@@ -21,7 +21,7 @@ const QUIZ_BUTTON_COLORS = {
   D: { bg: '#1DD1A1', border: '#10AC84' }, // Emerald
 };
 
-const PARTY_REACTIONS = ['🔥', '💀', '🍅', '👏', '🤯', '👑', '🎯'];
+const PARTY_REACTIONS = ['Top', 'Boa!', 'Discordo', 'Sensacional', 'Ponto'];
 
 const QUICK_ARGUMENTS = [
   'Minha tese irrefutável é que...',
@@ -181,7 +181,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
               globalHapticsEnabled = next;
             }}
           >
-            <Text style={styles.hapticsBtnText}>{hapticsOn ? '📳 Vibração' : '🔇 Mudo'}</Text>
+            <Text style={styles.hapticsBtnText}>{hapticsOn ? 'Vibração' : 'Silencioso'}</Text>
           </TouchableOpacity>
           <View style={styles.timerContainer}>
             <Text style={styles.timerText}>{remaining}s</Text>
@@ -193,7 +193,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
         {/* Phase Badge */}
         <View style={styles.topicCard}>
           <Text style={styles.phaseBadge}>
-            {isQuiz ? '⚡ QUIZ RELÂMPAGO' : '⚖️ MODO DEBATE'} • FASE: {phase}
+            {isQuiz ? 'QUIZ RELÂMPAGO' : 'MODO DEBATE'} • FASE: {phase}
           </Text>
           <Text style={styles.topicText}>
             {isQuiz
@@ -205,7 +205,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
         {/* Debate Role Banner (Item 35) */}
         {!isQuiz && (
           <View style={[styles.roleBanner, isDebater ? styles.roleBannerDebater : styles.roleBannerJuror]}>
-            <Text style={styles.roleBannerIcon}>{isDebater ? '⚔️' : '🏛️'}</Text>
+            <Text style={styles.roleBannerIcon}>{isDebater ? 'DEFESA' : 'JÚRI'}</Text>
             <View style={styles.roleBannerTextCol}>
               <Text style={styles.roleBannerTitle}>
                 {isDebater ? 'VOCÊ É DEBATEDOR' : 'VOCÊ É JURADO DA PLATÉIA'}
@@ -263,7 +263,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                 {votedQuizChoice !== null && (
                   <View style={styles.speedIndicatorCard}>
                     <Text style={styles.speedIndicatorTitle}>
-                      ⚡ Resposta confirmada em {answerTimeMs !== null ? `${answerTimeMs}ms` : '< 1s'}
+                      Resposta confirmada em {answerTimeMs !== null ? `${answerTimeMs}ms` : '< 1s'}
                     </Text>
                     <View style={styles.speedProgressBarBg}>
                       <View
@@ -277,7 +277,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                     </View>
                     <Text style={styles.speedRatingText}>
                       {(answerTimeMs || 800) < 2000
-                        ? 'Velocidade Relâmpago! 🚀 (Multiplicador de Pontos Ativo)'
+                        ? 'Velocidade Máxima! (Multiplicador de Pontos Ativo)'
                         : 'Resposta enviada! Acompanhe a revelação no telão.'}
                     </Text>
                   </View>
@@ -288,7 +288,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
             {phase === 'REVEAL' && (
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>
-                  {votedQuizChoice === quiz?.correct_option ? '🎉 Você Acertou!' : '❌ Resposta Incorreta'}
+                  {votedQuizChoice === quiz?.correct_option ? 'Você Acertou!' : 'Resposta Incorreta'}
                 </Text>
                 <Text style={styles.sectionSubtitle}>
                   A alternativa correta é a letra {quiz?.correct_option}.
@@ -304,7 +304,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
             {(phase === 'LEADERBOARD' || phase === 'FINAL_RESULTS') && (
               <View style={styles.card}>
                 <Text style={styles.winnerTitle}>
-                  {phase === 'FINAL_RESULTS' ? '🏆 Fim do Quiz!' : '📊 Sua Posição'}
+                  {phase === 'FINAL_RESULTS' ? 'Fim do Quiz!' : 'Sua Posição'}
                 </Text>
                 <Text style={styles.sectionSubtitle}>
                   {myQuizScore
@@ -321,7 +321,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
           <View style={styles.debateWrapper}>
             {phase === 'LOBBY' && (
               <View style={styles.card}>
-                <Text style={styles.sectionTitle}>⚖️ Tribunal em Preparação</Text>
+                <Text style={styles.sectionTitle}>Tribunal em Preparação</Text>
                 <Text style={styles.sectionSubtitle}>
                   Prepare-se! Em instantes os debatedores apresentarão suas teses de acusação e defesa.
                 </Text>
@@ -344,7 +344,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
               <View style={styles.card}>
                 <View style={styles.roleHeader}>
                   <Text style={[styles.roleBadge, isDebater ? styles.roleDebater : styles.roleJuror]}>
-                    {isDebater ? '🎤 VOCÊ É O DEBATEDOR OFICIAL' : '👀 VOCÊ É JURADO POPULAR'}
+                    {isDebater ? 'VOCÊ É O DEBATEDOR OFICIAL' : 'VOCÊ É JURADO POPULAR'}
                   </Text>
                 </View>
 
@@ -460,7 +460,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
             {/* Results View */}
             {phase === 'RESULTS' && (
               <View style={styles.card}>
-                <Text style={styles.winnerTitle}>🏆 Veredito dos Jurados</Text>
+                <Text style={styles.winnerTitle}>Veredito dos Jurados</Text>
                 <Text style={styles.winnerSubtitle}>
                   {debate?.winner_side === 'side_a'
                     ? 'Lado Coral conquistou a vitória!'
@@ -488,7 +488,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
             <Text style={styles.reactionTitle}>Reações em Tempo Real:</Text>
             {comboCount > 1 && (
               <View style={styles.comboBadge}>
-                <Text style={styles.comboText}>🔥 x{comboCount} COMBO!</Text>
+                <Text style={styles.comboText}>x{comboCount} COMBO!</Text>
               </View>
             )}
           </View>
