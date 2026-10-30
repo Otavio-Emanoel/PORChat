@@ -340,3 +340,8 @@ export interface SysRoomUpdatedPayload {
   room: Room;
 }
 
+// -------------------------------------------------------------
+// Security & Cryptographic Integrity Exports
+// -------------------------------------------------------------
+export * from './security';
+
