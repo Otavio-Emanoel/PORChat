@@ -1,21 +1,30 @@
-'use client';
-
 import React from 'react';
+import { Reply, Copy, Trash2 } from 'lucide-react';
 
-const QUICK_EMOJIS = ['❤️', '🔥', '😂', '👏', '👑', '👍'] as const;
+const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const;
 
 interface MessageHoverBarProps {
   messageId: string;
   onReact: (emoji: string) => void;
   isCurrentUser: boolean;
+  onReply?: () => void;
+  onCopy?: () => void;
+  onDelete?: () => void;
 }
 
-export function MessageHoverBar({ messageId, onReact, isCurrentUser }: MessageHoverBarProps) {
+export function MessageHoverBar({
+  messageId,
+  onReact,
+  isCurrentUser,
+  onReply,
+  onCopy,
+  onDelete,
+}: MessageHoverBarProps) {
   return (
     <div
       className={`absolute -top-4 ${
         isCurrentUser ? 'right-2' : 'left-2'
-      } z-20 flex items-center gap-0.5 px-2 py-1 rounded-full bg-white/95 backdrop-blur-md border border-gray-200/80 shadow-lg animate-in fade-in zoom-in-95 duration-150 transition-all`}
+      } z-20 flex items-center gap-0.5 px-2 py-1 rounded-full bg-white/95 backdrop-blur-md border border-gray-200/80 shadow-lg animate-in fade-in zoom-in-95 duration-150 transition-all select-none`}
       onClick={(e) => e.stopPropagation()}
     >
       {QUICK_EMOJIS.map((emoji) => (
@@ -23,12 +32,47 @@ export function MessageHoverBar({ messageId, onReact, isCurrentUser }: MessageHo
           key={emoji}
           type="button"
           onClick={() => onReact(emoji)}
-          className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 hover:scale-125 transition-all active:scale-95 text-xs"
+          className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 hover:scale-125 transition-all active:scale-95 text-xs cursor-pointer"
           title={`Reagir com ${emoji}`}
         >
           {emoji}
         </button>
       ))}
+
+      <div className="h-4 w-px bg-gray-200 mx-1" />
+
+      {onReply && (
+        <button
+          type="button"
+          onClick={onReply}
+          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-500 hover:text-brand-primary hover:bg-gray-100 transition-all active:scale-95 cursor-pointer"
+          title="Responder mensagem"
+        >
+          <Reply className="w-3.5 h-3.5" />
+        </button>
+      )}
+
+      {onCopy && (
+        <button
+          type="button"
+          onClick={onCopy}
+          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-500 hover:text-brand-primary hover:bg-gray-100 transition-all active:scale-95 cursor-pointer"
+          title="Copiar texto"
+        >
+          <Copy className="w-3.5 h-3.5" />
+        </button>
+      )}
+
+      {onDelete && isCurrentUser && (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all active:scale-95 cursor-pointer"
+          title="Apagar mensagem"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   );
 }

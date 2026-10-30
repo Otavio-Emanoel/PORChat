@@ -158,6 +158,14 @@ export function useWebSocket({
         break;
       }
 
+      case 'chat:message_deleted': {
+        const p = envelope.payload as { message_id: string };
+        if (p && p.message_id) {
+          setMessages((prev) => prev.filter((m) => m.id !== p.message_id));
+        }
+        break;
+      }
+
       case 'sys:pong': {
         const p = envelope.payload as { client_time: number; server_time: number };
         if (p && p.client_time) {
