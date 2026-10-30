@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useWebSocket } from '@/lib/useWebSocket';
-import { getStoredUser, getStoredToken, clearStoredSession, loginDemoUser, type User } from '@/lib/auth';
+import { getStoredUser, getStoredToken, clearStoredSession, loginDemoUser, logoutUser, type User } from '@/lib/auth';
 import { AuthModal } from '@/components/AuthModal';
 import { CreateGroupModal } from '@/components/CreateGroupModal';
 import { ProfileModal } from '@/components/ProfileModal';
@@ -13,6 +13,9 @@ import { MessageHoverBar, MessageReactionPills } from '@/components/MessageReact
 import { PinnedBanner } from '@/components/PinnedBanner';
 import { AudioWaveformBubble } from '@/components/AudioWaveformBubble';
 import { GroupDrawer } from '@/components/GroupDrawer';
+import { SecurityAuditModal } from '@/components/SecurityAuditModal';
+import { ExternalLinkModal } from '@/components/ExternalLinkModal';
+import { ClientRateLimiter, sanitizeClientInput, SessionInactivityGuard, getStoredSecuritySettings } from '@/lib/security';
 import { audioFeedback } from '@/lib/audioFeedback';
 import {
   MessageSquare,
@@ -100,6 +103,9 @@ export default function RoomPage() {
   // Modern chat & media states
   const [isMuted, setIsMuted] = useState(false);
   const [isGroupDrawerOpen, setIsGroupDrawerOpen] = useState(false);
+  const [isSecurityAuditOpen, setIsSecurityAuditOpen] = useState(false);
+  const [externalLinkToOpen, setExternalLinkToOpen] = useState<string | null>(null);
+  const clientRateLimiter = useRef(new ClientRateLimiter(6, 2000));
   const [replyingTo, setReplyingTo] = useState<{ id: string; nickname: string; content: string } | null>(null);
   const [attachment, setAttachment] = useState<{ name: string; size: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +119,19 @@ export default function RoomPage() {
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return name.slice(0, 2).toUpperCase();
   };
+
+  // Inactivity guard
+  useEffect(() => {
+    if (!currentUser) return;
+    const settings = getStoredSecuritySettings();
+    const guard = new SessionInactivityGuard(settings.session_timeout_minutes, async () => {
+      await logoutUser();
+      setCurrentUser(null);
+      setToastMessage('Sessão encerrada por inatividade preventiva.');
+    });
+    guard.start();
+    return () => guard.stop();
+  }, [currentUser]);
 
   // Initialize User & Profile Customization
   useEffect(() => {
@@ -313,10 +332,15 @@ export default function RoomPage() {
     e.preventDefault();
     if (!inputText.trim() && !attachment) return;
 
+    if (!clientRateLimiter.current.allow()) {
+      setToastMessage('Aguarde um instante antes de enviar outra mensagem.');
+      return;
+    }
+
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     sendTyping(false);
 
-    let messageContent = inputText.trim();
+    let messageContent = sanitizeClientInput(inputText);
     if (replyingTo) {
       messageContent = `> [${replyingTo.nickname}]: ${replyingTo.content}\n${messageContent}`;
       setReplyingTo(null);
@@ -534,6 +558,38 @@ export default function RoomPage() {
     );
   };
 
+  const handleOpenUrl = (url: string) => {
+    const settings = getStoredSecuritySettings();
+    if (settings.link_safety_interceptor) {
+      setExternalLinkToOpen(url);
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const renderWithLinks = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    return parts.map((part, i) => {
+      if (part.match(urlRegex)) {
+        return (
+          <a
+            key={i}
+            href={part}
+            onClick={(e) => {
+              e.preventDefault();
+              handleOpenUrl(part);
+            }}
+            className="text-brand-primary underline break-all hover:opacity-80 transition-opacity"
+          >
+            {part}
+          </a>
+        );
+      }
+      return renderHighlightedText(part);
+    });
+  };
+
   const renderMessageContent = (content: string) => {
     if (content.startsWith('> [')) {
       const newlineIndex = content.indexOf('\n');
@@ -545,12 +601,12 @@ export default function RoomPage() {
             <div className="px-2 py-1 rounded-lg bg-black/5 border-l-2 border-brand-primary text-xs text-gray-600 mb-1">
               {quoteHeader.replace(/^>\s*/, '')}
             </div>
-            <div>{renderHighlightedText(actualBody)}</div>
+            <div>{renderWithLinks(actualBody)}</div>
           </div>
         );
       }
     }
-    return renderHighlightedText(content);
+    return renderWithLinks(content);
   };
 
   const renderDateDivider = (currentDateStr?: string, prevDateStr?: string) => {
@@ -1141,7 +1197,18 @@ export default function RoomPage() {
               </button>
 
               {isRoomMenuOpen && (
-                <div className="absolute right-0 top-11 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 p-1.5 z-50 animate-pop-in text-xs font-bold">
+                <div className="absolute right-0 top-11 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 p-1.5 z-50 animate-pop-in text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRoomMenuOpen(false);
+                      setIsSecurityAuditOpen(true);
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-emerald-50 text-emerald-800 transition-colors text-left"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Segurança & Exportar</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -1504,6 +1571,10 @@ export default function RoomPage() {
         onDelete={handleDeleteRoom}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
+        onOpenSecurityAudit={() => {
+          setIsGroupDrawerOpen(false);
+          setIsSecurityAuditOpen(true);
+        }}
       />
 
       {/* Linear-Style Command Palette (Item 48) */}
@@ -1545,6 +1616,23 @@ export default function RoomPage() {
           setNickname(user.nickname);
           setIsAuthModalOpen(false);
         }}
+      />
+
+      {/* Security & Audit Modal */}
+      <SecurityAuditModal
+        isOpen={isSecurityAuditOpen}
+        onClose={() => setIsSecurityAuditOpen(false)}
+        roomId={roomId}
+        roomName={roomInfo?.name || 'Conversa'}
+        messages={messages}
+        currentNickname={nickname}
+      />
+
+      {/* External Link Interceptor Modal */}
+      <ExternalLinkModal
+        isOpen={!!externalLinkToOpen}
+        onClose={() => setExternalLinkToOpen(null)}
+        url={externalLinkToOpen || ''}
       />
     </div>
   );

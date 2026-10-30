@@ -17,6 +17,7 @@ interface GroupDrawerProps {
   onDelete: () => void;
   isMuted: boolean;
   onToggleMute: () => void;
+  onOpenSecurityAudit?: () => void;
 }
 
 export function GroupDrawer({
@@ -33,6 +34,7 @@ export function GroupDrawer({
   onDelete,
   isMuted,
   onToggleMute,
+  onOpenSecurityAudit,
 }: GroupDrawerProps) {
   const [copied, setCopied] = React.useState(false);
 
@@ -191,12 +193,24 @@ export function GroupDrawer({
               </div>
             )}
 
-            {/* Privacy notice */}
-            <div className="p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200/50 flex items-start gap-2.5 text-xs text-emerald-800">
-              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <span className="text-[11px] leading-tight">
-                Todas as conversas e mídias trocadas neste grupo são restritas aos participantes autorizados.
-              </span>
+            {/* Privacy notice & Audit Button */}
+            <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/60 space-y-2.5">
+              <div className="flex items-start gap-2.5 text-xs text-emerald-800">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span className="text-[11px] leading-tight font-medium">
+                  Conversas e mídias protegidas por criptografia, verificação estrita de origem e controle anti-adulteração.
+                </span>
+              </div>
+              {onOpenSecurityAudit && (
+                <button
+                  type="button"
+                  onClick={onOpenSecurityAudit}
+                  className="w-full py-2 px-3 rounded-xl bg-white hover:bg-emerald-50/50 text-emerald-800 font-bold text-xs border border-emerald-200 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Segurança, Auditoria & Exportar</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
