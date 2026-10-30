@@ -46,6 +46,45 @@ export function clearStoredSession() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+export async function logoutUser(): Promise<void> {
+  const token = getStoredToken();
+  if (token) {
+    try {
+      await fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    } catch {
+      // Ignore network errors on logout
+    }
+  }
+  clearStoredSession();
+}
+
+export async function validateSession(): Promise<User | null> {
+  const token = getStoredToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) {
+      clearStoredSession();
+      return null;
+    }
+    const data = await res.json();
+    return data.user || null;
+  } catch {
+    return getStoredUser();
+  }
+}
+
 export async function loginWithCredentials(email: string, password: string): Promise<AuthResponse> {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: 'POST',
