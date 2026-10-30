@@ -1,7 +1,44 @@
 import React from 'react';
-import { Reply, Copy, Trash2 } from 'lucide-react';
+import { Reply, Copy, Trash2, ThumbsUp, Heart, Smile, Sparkles, Check } from 'lucide-react';
 
-const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const;
+export const REACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  like: ThumbsUp,
+  heart: Heart,
+  smile: Smile,
+  star: Sparkles,
+  check: Check,
+  '\uD83D\uDC4D': ThumbsUp,
+  '\u2764\uFE0F': Heart,
+  '\uD83D\uDE02': Smile,
+  '\uD83D\uDE2E': Sparkles,
+  '\uD83D\uDE22': Smile,
+  '\uD83D\uDE4F': Check,
+  '\uD83D\uDD25': Sparkles,
+  '\uD83D\uDC51': Sparkles,
+};
+
+export const REACTION_LABELS: Record<string, string> = {
+  like: 'Curtir',
+  heart: 'Amei',
+  smile: 'Riso',
+  star: 'Destaque',
+  check: 'Concordo',
+  '\uD83D\uDC4D': 'Curtir',
+  '\u2764\uFE0F': 'Amei',
+  '\uD83D\uDE02': 'Riso',
+  '\uD83D\uDE2E': 'Impressionado',
+  '\uD83D\uDE22': 'Triste',
+  '\uD83D\uDE4F': 'Agradecido',
+  '\uD83D\uDD25': 'Destaque',
+  '\uD83D\uDC51': 'Top',
+};
+
+const QUICK_REACTIONS = [
+  { key: 'like', label: 'Curtir', icon: ThumbsUp },
+  { key: 'heart', label: 'Amei', icon: Heart },
+  { key: 'smile', label: 'Riso', icon: Smile },
+  { key: 'star', label: 'Destaque', icon: Sparkles },
+] as const;
 
 interface MessageHoverBarProps {
   messageId: string;
@@ -27,15 +64,15 @@ export function MessageHoverBar({
       } z-20 flex items-center gap-0.5 px-2 py-1 rounded-full bg-white/95 backdrop-blur-md border border-gray-200/80 shadow-lg animate-in fade-in zoom-in-95 duration-150 transition-all select-none`}
       onClick={(e) => e.stopPropagation()}
     >
-      {QUICK_EMOJIS.map((emoji) => (
+      {QUICK_REACTIONS.map(({ key, label, icon: IconComponent }) => (
         <button
-          key={emoji}
+          key={key}
           type="button"
-          onClick={() => onReact(emoji)}
-          className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 hover:scale-125 transition-all active:scale-95 text-xs cursor-pointer"
-          title={`Reagir com ${emoji}`}
+          onClick={() => onReact(key)}
+          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-600 hover:text-brand-primary hover:bg-gray-100 hover:scale-110 transition-all active:scale-95 cursor-pointer"
+          title={label}
         >
-          {emoji}
+          <IconComponent className="w-3.5 h-3.5" />
         </button>
       ))}
 
@@ -101,6 +138,8 @@ export function MessageReactionPills({
       {Object.entries(reactions).map(([emoji, users]) => {
         if (!users || users.length === 0) return null;
         const hasReacted = currentUserId ? users.includes(currentUserId) : false;
+        const IconComponent = REACTION_ICONS[emoji];
+
         return (
           <button
             key={emoji}
@@ -109,13 +148,17 @@ export function MessageReactionPills({
               e.stopPropagation();
               onToggleReaction(emoji);
             }}
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold transition-all tactile-btn ${
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold transition-all tactile-btn ${
               hasReacted
                 ? 'bg-brand-primary/15 text-brand-primary border border-brand-primary/30 shadow-2xs'
                 : 'bg-gray-100/90 hover:bg-gray-200/80 text-gray-700 border border-gray-200/60'
             }`}
           >
-            <span>{emoji}</span>
+            {IconComponent ? (
+              <IconComponent className="w-3 h-3" />
+            ) : (
+              <span>{REACTION_LABELS[emoji] || emoji}</span>
+            )}
             <span className="font-mono text-[10px]">{users.length}</span>
           </button>
         );

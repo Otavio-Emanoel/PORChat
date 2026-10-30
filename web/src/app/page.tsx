@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { AuthModal } from '@/components/AuthModal';
 import { CreateRoomModal } from '@/components/CreateRoomModal';
-import { getStoredUser, clearStoredSession, loginDemoUser, type User } from '@/lib/auth';
+import { getStoredUser, clearStoredSession, type User } from '@/lib/auth';
 import {
   MessageSquare,
   Tv,
@@ -55,16 +55,6 @@ export default function LandingPage() {
   const handleLogout = () => {
     clearStoredSession();
     setCurrentUser(null);
-  };
-
-  const handleQuickLogin = async (profile: 'Otavio' | 'Pedro' | 'Raul') => {
-    try {
-      const res = await loginDemoUser(profile);
-      setCurrentUser(res.user);
-      router.push('/room/default');
-    } catch (e) {
-      console.error('Falha no login rápido:', e);
-    }
   };
 
   const handleJoinByCode = async (target: 'chat' | 'tv') => {
@@ -228,50 +218,6 @@ export default function LandingPage() {
                       {joinError}
                     </div>
                   )}
-
-                  {/* 1-Click Fast Profile Switcher */}
-                  <div>
-                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-2">
-                      Perfis de Demonstração (1 Clique):
-                    </span>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleQuickLogin('Otavio')}
-                        className="p-3 rounded-2xl bg-purple-50/70 hover:bg-purple-100/70 border border-purple-200/60 text-left transition-all hover:scale-[1.02] shadow-2xs group cursor-pointer"
-                      >
-                        <div className="w-8 h-8 rounded-xl bg-brand-primary text-white font-heading font-bold text-xs flex items-center justify-center mb-1.5 shadow-2xs group-hover:scale-105 transition-transform">
-                          OE
-                        </div>
-                        <div className="font-bold text-xs text-purple-900">Otavio</div>
-                        <div className="text-[10px] text-purple-600 truncate">otavio@porchat.com</div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleQuickLogin('Pedro')}
-                        className="p-3 rounded-2xl bg-rose-50/70 hover:bg-rose-100/70 border border-rose-200/60 text-left transition-all hover:scale-[1.02] shadow-2xs group cursor-pointer"
-                      >
-                        <div className="w-8 h-8 rounded-xl bg-brand-action text-white font-heading font-bold text-xs flex items-center justify-center mb-1.5 shadow-2xs group-hover:scale-105 transition-transform">
-                          PR
-                        </div>
-                        <div className="font-bold text-xs text-rose-900">Pedro</div>
-                        <div className="text-[10px] text-rose-600 truncate">pedro@porchat.com</div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleQuickLogin('Raul')}
-                        className="p-3 rounded-2xl bg-teal-50/70 hover:bg-teal-100/70 border border-teal-200/60 text-left transition-all hover:scale-[1.02] shadow-2xs group cursor-pointer"
-                      >
-                        <div className="w-8 h-8 rounded-xl bg-brand-mint text-white font-heading font-bold text-xs flex items-center justify-center mb-1.5 shadow-2xs group-hover:scale-105 transition-transform">
-                          RL
-                        </div>
-                        <div className="font-bold text-xs text-teal-900">Raul</div>
-                        <div className="text-[10px] text-teal-600 truncate">raul@porchat.com</div>
-                      </button>
-                    </div>
-                  </div>
 
                   {/* Standard Login Buttons */}
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
@@ -506,8 +452,8 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="p-8 rounded-3xl bg-surface-light border border-gray-100 shadow-xs flex flex-col justify-between">
               <div>
-                <div className="w-12 h-12 rounded-2xl bg-brand-primary/10 text-brand-primary flex items-center justify-center text-2xl mb-4">
-                  💬
+                <div className="w-12 h-12 rounded-2xl bg-brand-primary/10 text-brand-primary flex items-center justify-center mb-4">
+                  <MessageSquare className="w-6 h-6" />
                 </div>
                 <h3 className="font-heading text-lg font-bold text-ink-main mb-2">
                   Conversas Diretas Particulares
@@ -523,8 +469,8 @@ export default function LandingPage() {
 
             <div className="p-8 rounded-3xl bg-surface-light border border-gray-100 shadow-xs flex flex-col justify-between">
               <div>
-                <div className="w-12 h-12 rounded-2xl bg-brand-action/10 text-brand-action flex items-center justify-center text-2xl mb-4">
-                  👥
+                <div className="w-12 h-12 rounded-2xl bg-brand-action/10 text-brand-action flex items-center justify-center mb-4">
+                  <Users className="w-6 h-6" />
                 </div>
                 <h3 className="font-heading text-lg font-bold text-ink-main mb-2">
                   Grupos Fechados com Código
@@ -540,8 +486,8 @@ export default function LandingPage() {
 
             <div className="p-8 rounded-3xl bg-surface-light border border-gray-100 shadow-xs flex flex-col justify-between">
               <div>
-                <div className="w-12 h-12 rounded-2xl bg-brand-mint/10 text-brand-mint flex items-center justify-center text-2xl mb-4">
-                  📺
+                <div className="w-12 h-12 rounded-2xl bg-brand-mint/10 text-brand-mint flex items-center justify-center mb-4">
+                  <Tv className="w-6 h-6" />
                 </div>
                 <h3 className="font-heading text-lg font-bold text-ink-main mb-2">
                   Modo Telão Sincronizado

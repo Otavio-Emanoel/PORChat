@@ -36,7 +36,7 @@ export function InChatGameCard({ roomId, gameState, onEnterJury }: InChatGameCar
             </span>
             <div>
               <span className="text-[10px] font-mono font-bold tracking-wider uppercase text-brand-reward">
-                {isDebate ? '⚔️ Modo Debate Ativo' : '🧠 Quiz Relâmpago Ativo'}
+                {isDebate ? 'Modo Debate Ativo' : 'Quiz Relâmpago Ativo'}
               </span>
               <h3 className="font-heading text-sm font-bold text-white tracking-tight leading-snug">
                 {isDebate

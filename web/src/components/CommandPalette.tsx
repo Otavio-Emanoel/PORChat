@@ -90,7 +90,7 @@ export function CommandPalette({
               onStartDebate();
               onClose();
             },
-            shortcut: '⚔️',
+            shortcut: 'D',
           },
         ]
       : []),
@@ -106,7 +106,7 @@ export function CommandPalette({
               onStartQuiz();
               onClose();
             },
-            shortcut: '⚡',
+            shortcut: 'Q',
           },
         ]
       : []),

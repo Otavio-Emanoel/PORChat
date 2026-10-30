@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { getStoredUser, getStoredToken, clearStoredSession, logoutUser, type User } from '@/lib/auth';
 import { useWebSocket } from '@/lib/useWebSocket';
-import { getStoredUser, getStoredToken, clearStoredSession, loginDemoUser, logoutUser, type User } from '@/lib/auth';
 import { AuthModal } from '@/components/AuthModal';
 import { CreateGroupModal } from '@/components/CreateGroupModal';
 import { ProfileModal } from '@/components/ProfileModal';
@@ -152,17 +152,6 @@ export default function RoomPage() {
     if (savedStatus) setUserStatus(savedStatus);
   }, []);
 
-  const handleQuickLogin = async (profile: 'Otavio' | 'Pedro' | 'Raul') => {
-    try {
-      const res = await loginDemoUser(profile);
-      setCurrentUser(res.user);
-      setNickname(res.user.nickname);
-      setIsAuthModalOpen(false);
-    } catch (e) {
-      console.error('Falha no login:', e);
-    }
-  };
-
   // Fetch Rooms & Contacts for Authenticated User
   useEffect(() => {
     if (!currentUser) return;
@@ -244,7 +233,7 @@ export default function RoomPage() {
   };
 
   const handleSendVoiceNote = () => {
-    sendMessage('🎤 Mensagem de Voz (0:14)');
+    sendMessage('[Mensagem de Voz: 0:14]');
   };
 
   // Synchronize last message and activity of the current room in the sidebar
@@ -347,8 +336,8 @@ export default function RoomPage() {
     }
     if (attachment) {
       messageContent = messageContent
-        ? `${messageContent}\n📎 [Arquivo: ${attachment.name} (${attachment.size})]`
-        : `📎 [Arquivo: ${attachment.name} (${attachment.size})]`;
+        ? `${messageContent}\n[Arquivo: ${attachment.name} (${attachment.size})]`
+        : `[Arquivo: ${attachment.name} (${attachment.size})]`;
       setAttachment(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -358,15 +347,15 @@ export default function RoomPage() {
   };
 
   const handleSaveProfile = ({
-    avatar_emoji,
+    avatar_color,
     status_text,
   }: {
-    avatar_emoji: string;
+    avatar_color: string;
     status_text: string;
   }) => {
-    setUserAvatar(avatar_emoji);
+    setUserAvatar(avatar_color);
     setUserStatus(status_text);
-    localStorage.setItem('porchat_avatar_emoji', avatar_emoji);
+    localStorage.setItem('porchat_avatar_color', avatar_color);
     localStorage.setItem('porchat_status_text', status_text);
   };
 
@@ -432,7 +421,7 @@ export default function RoomPage() {
     const inviteText = `${window.location.origin}/room/${roomId}`;
     navigator.clipboard.writeText(inviteText);
     setCopied(true);
-    showToast('🔗 Link da sala copiado para a área de transferência!');
+    showToast('Link da sala copiado para a área de transferência!');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -442,7 +431,7 @@ export default function RoomPage() {
     try {
       const res = await fetch(`${apiBase}/api/rooms/${roomId}`, { method: 'DELETE' });
       if (res.ok) {
-        showToast('🗑️ Sala excluída com sucesso!');
+        showToast('Sala excluída com sucesso!');
         const other = allRooms.find((r) => r.id !== roomId);
         if (other) {
           router.push(`/room/${other.id}`);
@@ -652,67 +641,8 @@ export default function RoomPage() {
               Assim como no WhatsApp, todas as conversas e grupos são privados e restritos à sua conta. Entre com seu perfil para acessar.
             </p>
 
-            {/* Quick 1-Click Profile Selection */}
-            <div className="mt-8">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">
-                Entrar com 1 Clique (Demonstração)
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('Otavio')}
-                  className="p-4 rounded-2xl border-2 border-brand-primary/20 hover:border-brand-primary bg-brand-primary/5 hover:bg-brand-primary/10 text-left transition-all group cursor-pointer"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-7 h-7 rounded-full bg-brand-primary text-white font-bold text-xs flex items-center justify-center shadow-xs">
-                      OE
-                    </div>
-                    <span className="font-bold text-sm text-ink-main">Otavio</span>
-                  </div>
-                  <span className="text-[11px] text-gray-500 block truncate">otavio@porchat.com</span>
-                  <span className="mt-2 inline-block text-[10px] font-semibold text-brand-primary bg-white px-2 py-0.5 rounded-full border border-brand-primary/20">
-                    Acessar Perfil →
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('Pedro')}
-                  className="p-4 rounded-2xl border-2 border-brand-action/20 hover:border-brand-action bg-brand-action/5 hover:bg-brand-action/10 text-left transition-all group cursor-pointer"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-7 h-7 rounded-full bg-brand-action text-white font-bold text-xs flex items-center justify-center shadow-xs">
-                      PR
-                    </div>
-                    <span className="font-bold text-sm text-ink-main">Pedro</span>
-                  </div>
-                  <span className="text-[11px] text-gray-500 block truncate">pedro@porchat.com</span>
-                  <span className="mt-2 inline-block text-[10px] font-semibold text-brand-action bg-white px-2 py-0.5 rounded-full border border-brand-action/20">
-                    Acessar Perfil →
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('Raul')}
-                  className="p-4 rounded-2xl border-2 border-brand-mint/20 hover:border-brand-mint bg-brand-mint/5 hover:bg-brand-mint/10 text-left transition-all group cursor-pointer"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-7 h-7 rounded-full bg-brand-mint text-white font-bold text-xs flex items-center justify-center shadow-xs">
-                      RL
-                    </div>
-                    <span className="font-bold text-sm text-ink-main">Raul</span>
-                  </div>
-                  <span className="text-[11px] text-gray-500 block truncate">raul@porchat.com</span>
-                  <span className="mt-2 inline-block text-[10px] font-semibold text-brand-mint bg-white px-2 py-0.5 rounded-full border border-brand-mint/20">
-                    Acessar Perfil →
-                  </span>
-                </button>
-              </div>
-            </div>
-
             {/* Manual Email Login / Register */}
-            <div className="mt-6 pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-center gap-3">
               <button
                 type="button"
                 onClick={() => {
@@ -914,8 +844,8 @@ export default function RoomPage() {
               </div>
             ) : filteredRooms.length === 0 ? (
               <div className="p-8 text-center text-gray-400">
-                <div className="w-12 h-12 mx-auto rounded-2xl bg-gray-100 flex items-center justify-center text-xl mb-3">
-                  💬
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 mb-3">
+                  <MessageSquare className="w-6 h-6 text-gray-400" />
                 </div>
                 <p className="text-xs font-semibold text-gray-600 mb-1">Nenhuma conversa encontrada</p>
                 <p className="text-[11px] text-gray-400 mb-4">
@@ -1333,7 +1263,7 @@ export default function RoomPage() {
             displayedMessages.map((msg, index) => {
               const isMe = msg.nickname === nickname;
               const isSystem = msg.type === 'system';
-              const isVoice = msg.content.startsWith('🎤 Mensagem de Voz');
+              const isVoice = msg.content.startsWith('[Mensagem de Voz') || msg.content.includes('Mensagem de Voz');
               const prevMsg = index > 0 ? displayedMessages[index - 1] : undefined;
 
               if (isSystem) {
@@ -1448,25 +1378,6 @@ export default function RoomPage() {
           )}
 
           <div ref={messagesEndRef} />
-        </div>
-
-        {/* Reaction Bar */}
-        <div className="px-4 py-1.5 bg-[#F0F2F5]/80 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
-          <span className="font-bold text-[10px] text-gray-400 uppercase tracking-wider">
-            Reações no Telão:
-          </span>
-          <div className="flex items-center gap-1">
-            {['🔥', '💀', '🍅', '👏', '🤯', '👑', '🎯'].map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => handleReaction(emoji)}
-                className="w-7 h-7 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center text-sm hover:scale-125 transition-all shadow-2xs"
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Floating Frosted Glass Message Input Dock (Item 54) */}
@@ -1600,7 +1511,7 @@ export default function RoomPage() {
         onClose={() => setIsProfileModalOpen(false)}
         currentUser={{
           nickname,
-          avatar_emoji: userAvatar,
+          avatar_color: userAvatar,
           status_text: userStatus,
         }}
         onSave={handleSaveProfile}
