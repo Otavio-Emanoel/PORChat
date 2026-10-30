@@ -122,13 +122,3 @@ export async function registerWithCredentials(
   setStoredSession(data.user, data.token);
   return data;
 }
-
-// 1-Click quick login for pre-seeded demo accounts
-export async function loginDemoUser(profile: 'Otavio' | 'Pedro' | 'Raul'): Promise<AuthResponse> {
-  const emailMap: Record<string, string> = {
-    Otavio: 'otavio@porchat.app',
-    Pedro: 'pedro@porchat.app',
-    Raul: 'raul@porchat.app',
-  };
-  return loginWithCredentials(emailMap[profile], '123456');
-}

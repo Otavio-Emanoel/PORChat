@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { X, Lock, Mail, User as UserIcon, CheckCircle2, AlertCircle } from 'lucide-react';
-import { loginWithCredentials, registerWithCredentials, loginDemoUser, type User } from '@/lib/auth';
+import { loginWithCredentials, registerWithCredentials, type User } from '@/lib/auth';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -41,20 +41,6 @@ export function AuthModal({ isOpen, onClose, onSuccess, initialMode = 'login' }:
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Ocorreu um erro');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleQuickDemo = async (profile: 'Otavio' | 'Pedro' | 'Raul') => {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await loginDemoUser(profile);
-      onSuccess(res.user);
-      onClose();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Falha no login demo');
     } finally {
       setLoading(false);
     }
@@ -185,29 +171,6 @@ export function AuthModal({ isOpen, onClose, onSuccess, initialMode = 'login' }:
               )}
             </button>
           </form>
-
-          {/* Quick Access for Founders */}
-          <div className="mt-6 pt-5 border-t border-gray-100">
-            <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider text-center mb-3">
-              Acesso Rápido dos Fundadores
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              {(['Otavio', 'Pedro', 'Raul'] as const).map((name) => (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => handleQuickDemo(name)}
-                  disabled={loading}
-                  className="p-2.5 rounded-xl bg-gray-50/80 hover:bg-brand-primary/10 hover:text-brand-primary border border-gray-100 text-xs font-bold text-ink-main transition-all text-center flex flex-col items-center gap-1.5 group shadow-2xs hover:shadow-xs tactile-btn"
-                >
-                  <span className="w-7 h-7 rounded-full bg-brand-primary/15 text-brand-primary text-xs font-black flex items-center justify-center group-hover:bg-brand-primary group-hover:text-white transition-colors">
-                    {name[0]}
-                  </span>
-                  <span className="font-heading">{name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>
