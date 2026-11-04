@@ -15,27 +15,55 @@ export type DebateSide = 'side_a' | 'side_b';
 
 export type ReactionEmoji = 'like' | 'heart' | 'smile' | 'star' | 'applause' | 'agree' | string;
 
+export type TriviaDifficulty = 'Fácil' | 'Média' | 'Difícil' | 'Todas';
+
 export interface User {
   id: string;
   nickname: string;
   email: string;
   avatar_url?: string | null;
-  avatar_emoji?: string;
+  avatar_color?: string;
   status_text?: string;
+  bio?: string;
   created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProfileUpdateRequest {
+  nickname?: string;
+  avatar_color?: string;
+  status_text?: string;
+  bio?: string;
+}
+
+export interface PasswordChangeRequest {
+  current_password: string;
+  new_password: string;
+}
+
+export interface PinnedMessageInfo {
+  message_id: string;
+  content: string;
+  sender_nickname: string;
+  pinned_by: string;
+  pinned_at: string;
 }
 
 export interface Room {
   id: string;
   name: string;
   code: string;
+  description?: string;
   is_group: boolean;
+  members?: string[];
+  admins?: string[];
   created_by?: string;
   created_at?: string;
   members_count?: number;
   last_message?: string;
   last_message_at?: string;
   unread_count?: number;
+  pinned_message?: PinnedMessageInfo | null;
 }
 
 export interface RoomMember {
@@ -43,12 +71,47 @@ export interface RoomMember {
   user_id: string;
   nickname: string;
   role: UserRole;
-  avatar_emoji?: string;
+  avatar_color?: string;
   status_text?: string;
+  bio?: string;
+  is_online?: boolean;
   joined_at?: string;
 }
 
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read';
+
+export type AttachmentKind = 'audio' | 'image' | 'document';
+
+export interface MessageAttachment {
+  id: string;
+  room_id: string;
+  kind: AttachmentKind;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  url: string;
+  data_url?: string;
+  duration_seconds?: number;
+  waveform?: number[];
+  created_at: string;
+}
+
+export interface ChatPollOption {
+  id: string;
+  label: string;
+  voter_ids: string[];
+}
+
+export interface ChatPoll {
+  id: string;
+  question: string;
+  options: ChatPollOption[];
+  multi_select?: boolean;
+  is_closed?: boolean;
+  created_by: string;
+  created_at: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -56,14 +119,27 @@ export interface ChatMessage {
   user_id: string;
   nickname: string;
   content: string;
-  type: 'text' | 'game_card' | 'system';
+  type: 'text' | 'game_card' | 'system' | 'voice' | 'file' | 'poll';
   created_at: string;
+  edited_at?: string;
+  is_edited?: boolean;
+  reply_to_id?: string;
+  reply_preview?: {
+    id: string;
+    nickname: string;
+    content: string;
+  };
+  read_by?: string[];
   status?: MessageStatus;
   reactions?: Record<string, string[]>;
+  attachment?: MessageAttachment | null;
+  poll?: ChatPoll | null;
   game_data?: {
     game_type: 'debate' | 'quiz';
     topic?: string;
     category?: string;
+    winner?: string;
+    summary?: string;
     action_label?: string;
   };
   metadata?: Record<string, unknown>;
@@ -89,11 +165,11 @@ export interface SysConnectedPayload {
     id: string;
     nickname: string;
     avatar_url?: string | null;
-    avatar_emoji?: string;
+    avatar_color?: string;
     status_text?: string;
   };
   client_type: ClientType;
-  online_users: Array<{ id: string; nickname: string; client_type?: ClientType; avatar_emoji?: string }>;
+  online_users: Array<{ id: string; nickname: string; client_type?: ClientType; avatar_color?: string }>;
   active_game?: GameStateUpdatePayload | null;
 }
 
@@ -101,7 +177,7 @@ export interface SysUserJoinedPayload {
   user_id: string;
   nickname: string;
   client_type: ClientType;
-  avatar_emoji?: string;
+  avatar_color?: string;
 }
 
 export interface SysUserLeftPayload {
@@ -130,6 +206,59 @@ export interface ServerPongPayload {
 
 export interface ChatSendPayload {
   content: string;
+  reply_to_id?: string;
+  attachment_id?: string;
+}
+
+export interface ChatEditMessagePayload {
+  message_id: string;
+  content: string;
+}
+
+export interface ChatMessageEditedPayload {
+  message_id: string;
+  room_id: string;
+  content: string;
+  edited_at: string;
+  is_edited: boolean;
+}
+
+export interface ChatPinMessagePayload {
+  message_id: string;
+}
+
+export interface ChatPinUpdatedPayload {
+  room_id: string;
+  pinned_message: PinnedMessageInfo | null;
+}
+
+export interface ChatMarkReadPayload {
+  message_ids?: string[];
+}
+
+export interface ChatReadReceiptPayload {
+  room_id: string;
+  user_id: string;
+  nickname: string;
+  message_ids: string[];
+  read_at: string;
+}
+
+export interface ChatCreatePollPayload {
+  question: string;
+  options: string[];
+  multi_select?: boolean;
+}
+
+export interface ChatVotePollPayload {
+  message_id: string;
+  option_id: string;
+}
+
+export interface ChatPollUpdatedPayload {
+  room_id: string;
+  message_id: string;
+  poll: ChatPoll;
 }
 
 export interface ChatTypingPayload {
@@ -173,9 +302,17 @@ export interface GameStartPayload {
   game_type: GameType;
   topic?: string;
   category?: string;
+  difficulty?: TriviaDifficulty;
   debater_a_id?: string;
+  debater_a_name?: string;
   debater_b_id?: string;
+  debater_b_name?: string;
   round_count?: number;
+  opening_seconds?: number;
+  rebuttal_seconds?: number;
+  voting_seconds?: number;
+  question_seconds?: number;
+  include_custom?: boolean;
 }
 
 export interface GameTickPayload {
@@ -188,7 +325,19 @@ export interface DebaterInfo {
   nickname: string;
   avatar?: string;
   argument?: string;
+  opening_argument?: string;
+  rebuttal_argument?: string;
   votes?: number;
+  ready?: boolean;
+}
+
+export interface CourtQuestion {
+  id: string;
+  user_id: string;
+  nickname: string;
+  question: string;
+  target_side?: 'side_a' | 'side_b' | 'both';
+  created_at: string;
 }
 
 export interface DebateState {
@@ -199,6 +348,8 @@ export interface DebateState {
   debater_a: DebaterInfo;
   debater_b: DebaterInfo;
   juror_ids?: string[];
+  ready_players?: string[];
+  court_questions?: CourtQuestion[];
   current_speaker_id?: string;
   votes_count: {
     side_a: number;
@@ -213,6 +364,7 @@ export interface TriviaQuestion {
   index: number;
   prompt: string;
   category?: string;
+  difficulty?: string;
   options: Record<QuizOptionKey, string>;
   correct_option?: QuizOptionKey;
   total_time_seconds: number;
@@ -230,12 +382,22 @@ export interface QuizLeaderboardEntry {
   rank?: number;
 }
 
+export interface FastestResponderInfo {
+  user_id: string;
+  nickname: string;
+  response_time_ms: number;
+}
+
 export interface QuizState {
   current_question_index: number;
   total_questions: number;
+  category?: string;
+  difficulty?: string;
   current_question?: TriviaQuestion;
   answers_distribution?: Record<QuizOptionKey, number>;
   correct_option?: QuizOptionKey | '';
+  fastest_responder?: FastestResponderInfo | null;
+  answered_count?: number;
   leaderboard: QuizLeaderboardEntry[];
   is_paused?: boolean;
 }
@@ -250,7 +412,7 @@ export interface GameStateUpdatePayload {
 }
 
 // -------------------------------------------------------------
-// Debate Action Payloads
+// Debate & Quiz Action Payloads
 // -------------------------------------------------------------
 
 export interface DebateSubmitArgumentPayload {
@@ -265,16 +427,19 @@ export interface DebateReactionPayload {
   emoji: ReactionEmoji | string;
 }
 
+export interface DebateAskQuestionPayload {
+  question: string;
+  target_side?: 'side_a' | 'side_b' | 'both';
+}
+
 export interface TvReactionStreamPayload {
-  reactions: Array<{
+  emoji?: string;
+  from?: string;
+  reactions?: Array<{
     emoji: string;
     count: number;
   }>;
 }
-
-// -------------------------------------------------------------
-// Quiz Action Payloads
-// -------------------------------------------------------------
 
 export interface QuizSubmitAnswerPayload {
   question_index?: number;
@@ -289,16 +454,78 @@ export interface QuizRoundRevealPayload {
 }
 
 // -------------------------------------------------------------
-// Demo Bots Payloads
+// Persistent Leaderboards, Career Stats & Custom Content Banks
 // -------------------------------------------------------------
 
-export interface BotsTogglePayload {
-  enabled: boolean;
-  count?: number;
+export interface PlayerCareerStats {
+  user_id: string;
+  nickname: string;
+  total_points: number;
+  matches_played: number;
+  debates_played: number;
+  debates_won: number;
+  debate_votes_received: number;
+  quizzes_played: number;
+  quiz_wins: number;
+  correct_answers: number;
+  total_answers: number;
+  accuracy_percent: number;
+  best_streak: number;
+  fastest_answer_ms: number;
+  updated_at: string;
 }
 
-export interface BotsStatusPayload {
-  active_bots: string[];
+export interface RoomLeaderboardEntry {
+  rank: number;
+  user_id: string;
+  nickname: string;
+  total_points: number;
+  debates_won: number;
+  quiz_wins: number;
+  matches_played: number;
+  best_streak: number;
+  accuracy_percent: number;
+}
+
+export interface MatchHistoryRecord {
+  id: string;
+  room_id: string;
+  game_type: GameType;
+  title: string;
+  category: string;
+  winner_id: string;
+  winner_nickname: string;
+  runner_up_nickname?: string;
+  summary: string;
+  participants_count: number;
+  top_scores?: Array<{
+    nickname: string;
+    score: number;
+  }>;
+  played_at: string;
+}
+
+export interface CustomDebateTopic {
+  id: string;
+  room_id: string;
+  topic: string;
+  category: string;
+  side_a_label: string;
+  side_b_label: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface CustomTriviaQuestion {
+  id: string;
+  room_id: string;
+  prompt: string;
+  category: string;
+  difficulty: 'Fácil' | 'Média' | 'Difícil';
+  options: Record<QuizOptionKey, string>;
+  correct_option: QuizOptionKey;
+  created_by: string;
+  created_at: string;
 }
 
 // -------------------------------------------------------------
@@ -318,6 +545,8 @@ export interface SystemStats {
 export interface MessageSearchParams {
   query: string;
   sender_id?: string;
+  type?: string;
+  before?: string;
   limit?: number;
 }
 
@@ -344,4 +573,3 @@ export interface SysRoomUpdatedPayload {
 // Security & Cryptographic Integrity Exports
 // -------------------------------------------------------------
 export * from './security';
-
