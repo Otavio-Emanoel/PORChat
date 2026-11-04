@@ -17,14 +17,21 @@ import {
 } from 'react-native';
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
-import type { ChatMessage } from '../types';
+import type {
+  ChatMessage,
+  RoomLeaderboardEntry,
+  MatchHistoryRecord,
+  TriviaDifficulty,
+} from '../types';
 
 interface RoomItem {
   id: string;
   name: string;
+  description?: string;
   code: string;
   is_group: boolean;
   members?: string[];
+  admins?: string[];
   created_by?: string;
   created_at?: string;
   last_message?: string;
@@ -35,32 +42,36 @@ interface ContactItem {
   id: string;
   nickname: string;
   email: string;
-}
-
-interface FloatingParticle {
-  id: number;
-  emoji: string;
-  x: number;
-  animY: Animated.Value;
-  animScale: Animated.Value;
-  animOpacity: Animated.Value;
+  avatar_color?: string;
+  status_text?: string;
 }
 
 export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenController }) => {
   const {
     messages,
     sendMessage,
+    editMessage,
+    deleteMessage,
+    pinMessage,
+    unpinMessage,
+    markMessagesRead,
+    createPoll,
+    votePoll,
+    closePoll,
     sendTyping,
     typingUsers,
     isConnected,
     gameState,
+    pinnedMessage,
+    setPinnedMessage,
+    roomUpdate,
     nickname,
     setNickname,
     roomId,
     setRoomId,
     serverHost,
-    sendReaction,
     sendAction,
+    updateMobileProfile,
   } = useWebSocketContext();
 
   // Navigation View: 'list' (WhatsApp chats/contacts list) or 'chat' (active conversation feed)
@@ -77,6 +88,10 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showRoomCodeModal, setShowRoomCodeModal] = useState(false);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [showCreatePollModal, setShowCreatePollModal] = useState(false);
+  const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
+  const [showGameSetupModal, setShowGameSetupModal] = useState(false);
+  const [gameSetupMode, setGameSetupMode] = useState<'debate' | 'quiz'>('debate');
 
   // Create Group Form
   const [newGroupName, setNewGroupName] = useState('');
@@ -85,12 +100,35 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
   // Profile Form
   const [tempNick, setTempNick] = useState(nickname);
+  const [tempStatus, setTempStatus] = useState('Disponível no PORChat');
+  const [tempBio, setTempBio] = useState('');
 
   // Room PIN Form
   const [roomPin, setRoomPin] = useState('');
 
-  // Floating Emoji Particles in active chat
-  const [particles, setParticles] = useState<FloatingParticle[]>([]);
+  // Create Poll Form
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptionA, setPollOptionA] = useState('');
+  const [pollOptionB, setPollOptionB] = useState('');
+  const [pollOptionC, setPollOptionC] = useState('');
+  const [pollMultiSelect, setPollMultiSelect] = useState(false);
+
+  // Game Setup Form
+  const [debateTopicInput, setDebateTopicInput] = useState('');
+  const [debateSideA, setDebateSideA] = useState('');
+  const [debateSideB, setDebateSideB] = useState('');
+  const [quizCategory, setQuizCategory] = useState('Todas');
+  const [quizDifficulty, setQuizDifficulty] = useState<TriviaDifficulty>('Todas');
+  const [quizRoundCount, setQuizRoundCount] = useState(5);
+
+  // Leaderboard & History State
+  const [leaderboardData, setLeaderboardData] = useState<RoomLeaderboardEntry[]>([]);
+  const [historyData, setHistoryData] = useState<MatchHistoryRecord[]>([]);
+
+  // Reply & Edit State
+  const [replyingTo, setReplyingTo] = useState<{ id: string; nickname: string; content: string } | null>(null);
+  const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Animations & Refs
@@ -98,7 +136,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const fabScaleAnim = useRef(new Animated.Value(1)).current;
   const flatListRef = useRef<FlatList>(null);
 
-  // Deterministic avatar pastel color hash (Item 31)
   const getAvatarBgColor = (idOrName: string) => {
     const palette = ['#6C5CE7', '#FF7675', '#00CEC9', '#FDCB6E', '#A29BFE', '#E17055', '#0984E3', '#00B894'];
     let hash = 0;
@@ -136,8 +173,26 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         const usersData: ContactItem[] = await usersRes.json();
         setContacts(usersData.filter((u) => u.nickname !== nickname));
       }
-    } catch (e) {
+    } catch {
       // Backend might be warming up
+    }
+  };
+
+  const fetchRoomLeaderboardAndHistory = async () => {
+    const host = serverHost.trim() || 'localhost:8081';
+    try {
+      const [boardRes, histRes] = await Promise.all([
+        fetch(`http://${host}/api/rooms/${encodeURIComponent(roomId)}/leaderboard`),
+        fetch(`http://${host}/api/rooms/${encodeURIComponent(roomId)}/history`),
+      ]);
+      if (boardRes.ok) {
+        setLeaderboardData(await boardRes.json());
+      }
+      if (histRes.ok) {
+        setHistoryData(await histRes.json());
+      }
+    } catch {
+      // Ignore network error
     }
   };
 
@@ -151,7 +206,30 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     fetchData();
   }, [roomId, serverHost, nickname]);
 
-  // Auto-scroll to bottom on incoming messages (Item 30)
+  useEffect(() => {
+    if (roomUpdate && roomUpdate.id === roomId) {
+      setCurrentRoomInfo(roomUpdate);
+      setRoomList((prev) => prev.map((r) => (r.id === roomUpdate.id ? { ...r, ...roomUpdate } : r)));
+    }
+  }, [roomUpdate, roomId]);
+
+  // Automatically mark unread messages as read when viewing active conversation
+  useEffect(() => {
+    if (currentView !== 'chat' || !isConnected || messages.length === 0) return;
+    const unreadIds = messages
+      .filter(
+        (m) =>
+          m.nickname !== nickname &&
+          m.type !== 'system' &&
+          !(m.read_by || []).some((r) => r.toLowerCase() === nickname.toLowerCase())
+      )
+      .map((m) => m.id);
+    if (unreadIds.length > 0) {
+      markMessagesRead(unreadIds);
+    }
+  }, [messages, currentView, isConnected, nickname]);
+
+  // Auto-scroll to bottom on incoming messages
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
@@ -208,7 +286,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     }
   }, [isGameActive]);
 
-  // Typing indicator debounce & PIN formatter (Item 8 & 22)
   const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const formatRoomPin = (input: string) => {
@@ -239,27 +316,61 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     if (!inputText.trim()) return;
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     sendTyping(false);
-    sendMessage(inputText.trim());
+
+    if (editingMessage) {
+      editMessage(editingMessage.id, inputText.trim());
+      setEditingMessage(null);
+      setInputText('');
+      return;
+    }
+
+    sendMessage(inputText.trim(), replyingTo?.id);
+    setReplyingTo(null);
     setInputText('');
   };
 
-  // Launch Debate inside current group
-  const handleStartDebate = () => {
-    sendAction('game:start', {
-      game_type: 'debate',
-      topic: 'Abacaxi na pizza é crime ou alta gastronomia?',
-      debater_a_id: 'debater-a',
-      debater_b_id: 'debater-b',
-    });
-    Alert.alert('Debate Iniciado!', 'O modo debate começou nesta sala. Abra o telão ou controle!');
+  const handleOpenGameSetup = (mode: 'debate' | 'quiz') => {
+    setGameSetupMode(mode);
+    const members = currentRoomInfo?.members || [nickname];
+    setDebateSideA(nickname);
+    const second = members.find((m) => m !== nickname) || '';
+    setDebateSideB(second);
+    setShowGameSetupModal(true);
   };
 
-  // Launch Quiz inside current group
-  const handleStartQuiz = () => {
-    sendAction('game:start', {
-      game_type: 'quiz',
-    });
-    Alert.alert('Quiz Relâmpago Iniciado!', 'Preparem os buzzers!');
+  const handleConfirmLaunchGame = () => {
+    if (gameSetupMode === 'debate') {
+      sendAction('game:start', {
+        game_type: 'debate',
+        topic: debateTopicInput.trim() || undefined,
+        debater_a_id: debateSideA || nickname,
+        debater_b_id: debateSideB || undefined,
+      });
+    } else {
+      sendAction('game:start', {
+        game_type: 'quiz',
+        quiz_category: quizCategory === 'Todas' ? undefined : quizCategory,
+        quiz_difficulty: quizDifficulty === 'Todas' ? undefined : quizDifficulty,
+        round_count: quizRoundCount,
+      });
+    }
+    setShowGameSetupModal(false);
+  };
+
+  const handleCreatePollSubmit = () => {
+    const cleanQ = pollQuestion.trim();
+    const opts = [pollOptionA.trim(), pollOptionB.trim(), pollOptionC.trim()].filter(Boolean);
+    if (cleanQ.length < 3 || opts.length < 2) {
+      Alert.alert('Enquete Incompleta', 'Informe uma pergunta e pelo menos 2 opções.');
+      return;
+    }
+    createPoll(cleanQ, opts, pollMultiSelect);
+    setPollQuestion('');
+    setPollOptionA('');
+    setPollOptionB('');
+    setPollOptionC('');
+    setPollMultiSelect(false);
+    setShowCreatePollModal(false);
   };
 
   // Select a room from list
@@ -273,7 +384,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const handleStartDirectChat = async (contact: ContactItem) => {
     const host = serverHost.trim() || 'localhost:8081';
     try {
-      // Check if a direct room already exists
       const existing = roomList.find(
         (r) => !r.is_group && (r.name === contact.nickname || r.members?.includes(contact.nickname))
       );
@@ -282,7 +392,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         return;
       }
 
-      // Create new direct room
       const res = await fetch(`http://${host}/api/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -299,7 +408,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         setRoomList((prev) => [newRoom, ...prev]);
         handleSelectRoom(newRoom);
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Erro', 'Não foi possível iniciar a conversa direta.');
     }
   };
@@ -337,7 +446,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       } else {
         Alert.alert('Erro', 'Não foi possível criar o grupo.');
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Erro de Conexão', 'Verifique a conexão com o servidor.');
     } finally {
       setIsCreatingGroup(false);
@@ -376,59 +485,11 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       handleSelectRoom(room);
       setRoomPin('');
       setShowRoomCodeModal(false);
-    } catch (e) {
+    } catch {
       Alert.alert('Erro', 'Não foi possível conectar ao servidor.');
     }
   };
 
-  // Trigger Live Emoji Reaction with Multi-Stage Animation
-  const handleTriggerReaction = (emoji: string) => {
-    sendReaction(emoji);
-
-    const newParticle: FloatingParticle = {
-      id: Date.now() + Math.random(),
-      emoji,
-      x: Math.random() * 260 + 20,
-      animY: new Animated.Value(0),
-      animScale: new Animated.Value(0.4),
-      animOpacity: new Animated.Value(1),
-    };
-
-    setParticles((prev) => [...prev.slice(-15), newParticle]);
-
-    Animated.parallel([
-      Animated.timing(newParticle.animY, {
-        toValue: -350,
-        duration: 1600,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.cubic),
-      }),
-      Animated.sequence([
-        Animated.timing(newParticle.animScale, {
-          toValue: 1.35,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(newParticle.animScale, {
-          toValue: 1,
-          duration: 1300,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.sequence([
-        Animated.delay(1000),
-        Animated.timing(newParticle.animOpacity, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]),
-    ]).start(() => {
-      setParticles((prev) => prev.filter((p) => p.id !== newParticle.id));
-    });
-  };
-
-  // Filtered Items for List with stable activity sorting
   const filteredRooms = roomList
     .filter((r) => {
       const matchesSearch =
@@ -446,20 +507,27 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       return a.name.localeCompare(b.name);
     });
 
-  const filteredContacts = contacts.filter((c) =>
-    c.nickname.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.email.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredContacts = contacts.filter(
+    (c) =>
+      c.nickname.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Render a Message Bubble
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isMe = item.nickname === nickname;
     const isSystem = item.type === 'system';
+    const isGameCard = item.type === 'game_card';
+    const readCount = (item.read_by || []).filter(
+      (r) => r.toLowerCase() !== item.nickname.toLowerCase()
+    ).length;
 
-    if (isSystem) {
+    if (isSystem || isGameCard) {
       return (
-        <View style={styles.systemMessageContainer}>
-          <Text style={styles.systemMessageText}>{item.content}</Text>
+        <View style={[styles.systemMessageContainer, isGameCard && styles.gameCardMessageContainer]}>
+          <Text style={[styles.systemMessageText, isGameCard && styles.gameCardMessageText]}>
+            {item.content}
+          </Text>
         </View>
       );
     }
@@ -470,32 +538,120 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         <TouchableOpacity
           activeOpacity={0.85}
           onLongPress={() => {
-            Alert.alert(
-              'Reagir à mensagem',
-              item.content.length > 50 ? `${item.content.slice(0, 50)}...` : item.content,
-              [
-                { text: 'Curtir', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'like' }) },
-                { text: 'Amei', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'heart' }) },
-                { text: 'Riso', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'smile' }) },
-                { text: 'Destaque', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'star' }) },
-                { text: 'Cancelar', style: 'cancel' },
-              ]
-            );
+            const actions: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }> = [
+              { text: 'Reagir: Curtir', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'LIKED' }) },
+              { text: 'Reagir: Concordo', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'AGREE' }) },
+              {
+                text: 'Responder',
+                onPress: () =>
+                  setReplyingTo({
+                    id: item.id,
+                    nickname: item.nickname,
+                    content: item.content,
+                  }),
+              },
+              {
+                text: pinnedMessage?.message_id === item.id ? 'Desafixar do Topo' : 'Fixar no Topo',
+                onPress: () =>
+                  pinnedMessage?.message_id === item.id ? unpinMessage() : pinMessage(item.id),
+              },
+            ];
+            if (isMe && item.type === 'text') {
+              actions.push({
+                text: 'Editar Mensagem',
+                onPress: () => {
+                  setEditingMessage({ id: item.id, content: item.content });
+                  setInputText(item.content);
+                },
+              });
+            }
+            if (isMe) {
+              actions.push({
+                text: 'Apagar Mensagem',
+                style: 'destructive',
+                onPress: () => deleteMessage(item.id),
+              });
+            }
+            actions.push({ text: 'Cancelar', style: 'cancel' });
+
+            Alert.alert('Opções da Mensagem', item.content.slice(0, 60), actions);
           }}
           style={[styles.bubble, isMe ? styles.myBubble : styles.otherBubble]}
         >
-          <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.otherMessageText]}>
-            {item.content}
-          </Text>
-          <View style={styles.messageFooterRow}>
-            <Text style={styles.messageTimeText}>
-              {new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {/* Reply Preview */}
+          {item.reply_preview && (
+            <View style={styles.replyPreviewBox}>
+              <Text style={styles.replyPreviewSender}>{item.reply_preview.nickname}</Text>
+              <Text style={styles.replyPreviewContent} numberOfLines={1}>
+                {item.reply_preview.content}
+              </Text>
+            </View>
+          )}
+
+          {/* Interactive Poll Bubble */}
+          {item.poll ? (
+            <View style={styles.pollContainer}>
+              <Text style={styles.pollBadgeText}>
+                {item.poll.is_closed ? 'ENQUETE ENCERRADA' : 'ENQUETE ATIVA'}
+              </Text>
+              <Text style={styles.pollQuestionText}>{item.poll.question}</Text>
+              {item.poll.options.map((opt) => {
+                const votes = opt.voter_ids?.length || 0;
+                const voted = (opt.voter_ids || []).some(
+                  (v) => v.toLowerCase() === nickname.toLowerCase()
+                );
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    disabled={item.poll?.is_closed}
+                    style={[styles.pollOptionBtn, voted && styles.pollOptionBtnActive]}
+                    onPress={() => votePoll(item.id, opt.id)}
+                  >
+                    <Text style={[styles.pollOptionText, voted && styles.pollOptionTextActive]}>
+                      {opt.text}
+                    </Text>
+                    <Text style={styles.pollOptionVotes}>{votes} v</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              {!item.poll.is_closed &&
+                item.poll.created_by.toLowerCase() === nickname.toLowerCase() && (
+                  <TouchableOpacity
+                    style={styles.closePollBtn}
+                    onPress={() => closePoll(item.id)}
+                  >
+                    <Text style={styles.closePollBtnText}>Encerrar Enquete</Text>
+                  </TouchableOpacity>
+                )}
+            </View>
+          ) : (
+            <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.otherMessageText]}>
+              {item.content}
             </Text>
-            {isMe && <Text style={styles.checkMarkText}> ✓✓</Text>}
+          )}
+
+          <View style={styles.messageFooterRow}>
+            {item.edited_at && <Text style={styles.editedBadgeText}>(editada) </Text>}
+            <Text style={styles.messageTimeText}>
+              {new Date(item.created_at || Date.now()).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+            {isMe && (
+              <Text
+                style={[
+                  styles.checkMarkText,
+                  readCount === 0 && { color: '#868E96', fontWeight: '600' },
+                ]}
+              >
+                {readCount > 0 ? ` • Lida (${readCount})` : ' • Entregue'}
+              </Text>
+            )}
           </View>
         </TouchableOpacity>
 
-        {/* Reaction Badges on Message (Item 51) */}
+        {/* Reaction Badges on Message */}
         {item.reactions && Object.keys(item.reactions).length > 0 && (
           <View style={[styles.reactionPillsRow, isMe ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
             {Object.entries(item.reactions).map(([emoji, users]) => (
@@ -523,7 +679,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   if (currentView === 'list') {
     return (
       <SafeAreaView style={styles.container}>
-        {/* Offline Status Banner (Item 32) */}
         {!isConnected && (
           <View style={styles.offlineBanner}>
             <Text style={styles.offlineBannerText}>
@@ -542,16 +697,17 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           </View>
 
           <View style={styles.waHeaderActions}>
-            {/* Quick Profile Pill */}
             <TouchableOpacity
               style={styles.profileBtn}
-              onPress={() => setShowProfileModal(true)}
+              onPress={() => {
+                setTempNick(nickname);
+                setShowProfileModal(true);
+              }}
               activeOpacity={0.8}
             >
               <Text style={styles.profileBtnText}>{nickname}</Text>
             </TouchableOpacity>
 
-            {/* Room PIN Code Button */}
             <TouchableOpacity
               style={styles.pinCodeBtn}
               onPress={() => setShowRoomCodeModal(true)}
@@ -603,14 +759,13 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             onChangeText={setSearchQuery}
             placeholder={
               activeTab === 'contacts'
-                ? 'Buscar nos contatos (Pedro, Otavio, Raul)...'
+                ? 'Buscar nos contatos...'
                 : 'Buscar conversas ou grupos...'
             }
             placeholderTextColor="#888"
           />
         </View>
 
-        {/* Content List with Pull-to-Refresh (Item 29) & Avatar Colors (Item 31) */}
         {activeTab === 'contacts' ? (
           <FlatList
             data={filteredContacts}
@@ -624,7 +779,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 onPress={() => handleStartDirectChat(item)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.chatAvatar, { backgroundColor: getAvatarBgColor(item.id || item.nickname) }]}>
+                <View style={[styles.chatAvatar, { backgroundColor: item.avatar_color || getAvatarBgColor(item.id || item.nickname) }]}>
                   <Text style={styles.chatAvatarText}>
                     {item.nickname.slice(0, 2).toUpperCase()}
                   </Text>
@@ -633,7 +788,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                   <View style={styles.chatTitleRow}>
                     <Text style={styles.chatName}>{item.nickname}</Text>
                     <View style={styles.contactBadge}>
-                      <Text style={styles.contactBadgeText}>Disponível</Text>
+                      <Text style={styles.contactBadgeText}>{item.status_text || 'Disponível'}</Text>
                     </View>
                   </View>
                   <Text style={styles.chatPreview}>{item.email}</Text>
@@ -692,7 +847,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                           : 'Conversa direta • Toque para abrir')}
                     </Text>
                   </View>
-                  <Text style={styles.chatArrow}>›</Text>
+                  <Text style={styles.chatArrow}>{'>'}</Text>
                 </TouchableOpacity>
               );
             }}
@@ -711,14 +866,12 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             onPress={() => setShowCreateGroupModal(true)}
             activeOpacity={0.85}
           >
-            <Text style={styles.fabIcon}>＋</Text>
+            <Text style={styles.fabIcon}>+</Text>
             <Text style={styles.fabText}>Novo Grupo</Text>
           </TouchableOpacity>
         </Animated.View>
 
-        {/* ================================================================== */}
-        {/* MODAL: CRIAR NOVO GRUPO (WHATSAPP STYLE)                           */}
-        {/* ================================================================== */}
+        {/* MODAL: CRIAR NOVO GRUPO */}
         <Modal
           visible={showCreateGroupModal}
           transparent
@@ -733,7 +886,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               <View style={styles.modalHeaderRow}>
                 <Text style={styles.modalTitle}>Novo Grupo</Text>
                 <TouchableOpacity onPress={() => setShowCreateGroupModal(false)}>
-                  <Text style={styles.modalCloseX}>✕</Text>
+                  <Text style={styles.modalCloseX}>Fechar</Text>
                 </TouchableOpacity>
               </View>
 
@@ -771,7 +924,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                         <Text style={styles.contactCheckEmail}>{c.email}</Text>
                       </View>
                       <View style={[styles.checkboxBox, isChecked && styles.checkboxBoxActive]}>
-                        {isChecked && <Text style={styles.checkboxCheck}>✓</Text>}
+                        {isChecked && <Text style={styles.checkboxCheck}>OK</Text>}
                       </View>
                     </TouchableOpacity>
                   );
@@ -801,29 +954,50 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Conta & Acesso</Text>
+              <Text style={styles.modalTitle}>Perfil & Conta</Text>
               <Text style={styles.modalSubtitle}>
-                Defina seu apelido de identificação no chat:
+                Personalize seu apelido, recado de status e biografia:
               </Text>
 
               <TextInput
-                style={[styles.modalInput, { marginTop: 12 }]}
+                style={[styles.modalInput, { marginTop: 8 }]}
                 value={tempNick}
                 onChangeText={setTempNick}
-                placeholder="Personalizar apelido..."
+                placeholder="Apelido..."
+                placeholderTextColor="#999"
+              />
+
+              <TextInput
+                style={styles.modalInput}
+                value={tempStatus}
+                onChangeText={setTempStatus}
+                placeholder="Status (ex: Pronto para o Debate)"
+                placeholderTextColor="#999"
+              />
+
+              <TextInput
+                style={styles.modalInput}
+                value={tempBio}
+                onChangeText={setTempBio}
+                placeholder="Biografia curta..."
                 placeholderTextColor="#999"
               />
 
               <TouchableOpacity
                 style={styles.primaryModalBtn}
-                onPress={() => {
+                onPress={async () => {
                   if (tempNick.trim()) {
+                    await updateMobileProfile({
+                      nickname: tempNick.trim(),
+                      status_text: tempStatus.trim(),
+                      bio: tempBio.trim(),
+                    });
                     setNickname(tempNick.trim());
                     setShowProfileModal(false);
                   }
                 }}
               >
-                <Text style={styles.primaryModalBtnText}>Salvar Apelido</Text>
+                <Text style={styles.primaryModalBtnText}>Salvar Perfil</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -857,21 +1031,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 autoCapitalize="characters"
               />
 
-              <TouchableOpacity
-                style={styles.pasteCodeBtn}
-                onPress={async () => {
-                  try {
-                    const nav = typeof globalThis !== 'undefined' ? (globalThis as any).navigator : null;
-                    if (Platform.OS === 'web' && nav?.clipboard?.readText) {
-                      const text = await nav.clipboard.readText();
-                      if (text) setRoomPin(formatRoomPin(text));
-                    }
-                  } catch (e) {}
-                }}
-              >
-                <Text style={styles.pasteCodeBtnText}>Colar Código</Text>
-              </TouchableOpacity>
-
               <TouchableOpacity style={styles.primaryModalBtn} onPress={handleJoinByPin}>
                 <Text style={styles.primaryModalBtnText}>Entrar na Sala</Text>
               </TouchableOpacity>
@@ -896,7 +1055,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Offline Status Banner (Item 32) */}
       {!isConnected && (
         <View style={styles.offlineBanner}>
           <Text style={styles.offlineBannerText}>
@@ -905,26 +1063,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         </View>
       )}
 
-      {/* Floating Reaction Particles Overlay */}
-      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        {particles.map((p) => (
-          <Animated.View
-            key={p.id}
-            style={[
-              styles.floatingEmoji,
-              {
-                left: p.x,
-                bottom: 80,
-                opacity: p.animOpacity,
-                transform: [{ translateY: p.animY }, { scale: p.animScale }],
-              },
-            ]}
-          >
-            <Text style={{ fontSize: 36 }}>{p.emoji}</Text>
-          </Animated.View>
-        ))}
-      </View>
-
       {/* Top Conversation Header */}
       <View style={styles.chatViewHeader}>
         <TouchableOpacity
@@ -932,8 +1070,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           onPress={() => setCurrentView('list')}
           activeOpacity={0.7}
         >
-          <Text style={styles.backButtonArrow}>←</Text>
-          <Text style={styles.backButtonText}>Conversas</Text>
+          <Text style={styles.backButtonText}>{'< Conversas'}</Text>
         </TouchableOpacity>
 
         <View style={styles.chatViewTitleBlock}>
@@ -947,13 +1084,24 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           </Text>
         </View>
 
-        {/* Quick Launch Game Actions */}
+        {/* Quick Launch Game & Leaderboard Actions */}
         <View style={styles.chatViewActions}>
+          <TouchableOpacity
+            style={[styles.gameActionMiniBtn, { backgroundColor: '#F3E8FF' }]}
+            onPress={() => {
+              fetchRoomLeaderboardAndHistory();
+              setShowLeaderboardModal(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.gameActionMiniText, { color: colors.brand.primary }]}>Ranking</Text>
+          </TouchableOpacity>
+
           {isCurrentGroup && (
             <>
               <TouchableOpacity
                 style={styles.gameActionMiniBtn}
-                onPress={handleStartDebate}
+                onPress={() => handleOpenGameSetup('debate')}
                 activeOpacity={0.7}
               >
                 <Text style={styles.gameActionMiniText}>Debate</Text>
@@ -961,7 +1109,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
               <TouchableOpacity
                 style={[styles.gameActionMiniBtn, { backgroundColor: '#FFF3BF' }]}
-                onPress={handleStartQuiz}
+                onPress={() => handleOpenGameSetup('quiz')}
                 activeOpacity={0.7}
               >
                 <Text style={[styles.gameActionMiniText, { color: '#D97706' }]}>Quiz</Text>
@@ -969,7 +1117,6 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             </>
           )}
 
-          {/* Active Game Buzzer / Controller CTA */}
           {isGameActive && (
             <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
               <TouchableOpacity
@@ -981,17 +1128,25 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               </TouchableOpacity>
             </Animated.View>
           )}
-
-          {/* Quick Leave Room Button (Item 36) */}
-          <TouchableOpacity
-            style={styles.leaveRoomIconBtn}
-            onPress={() => setCurrentView('list')}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.leaveRoomIconText}>✕</Text>
-          </TouchableOpacity>
         </View>
       </View>
+
+      {/* Pinned Message Banner */}
+      {pinnedMessage && (
+        <View style={styles.pinnedBanner}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pinnedBannerTitle}>
+              Fixado por {pinnedMessage.pinned_by} ({pinnedMessage.nickname}):
+            </Text>
+            <Text style={styles.pinnedBannerContent} numberOfLines={1}>
+              {pinnedMessage.content}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={unpinMessage} style={styles.unpinBtn}>
+            <Text style={styles.unpinBtnText}>Desafixar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Messages Feed */}
       <KeyboardAvoidingView
@@ -1008,7 +1163,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             <View style={styles.emptyMessagesContainer}>
               <Text style={styles.emptyMessagesTitle}>Nenhuma mensagem ainda</Text>
               <Text style={styles.emptyMessagesSubtitle}>
-                Envie uma mensagem abaixo para iniciar a conversa!
+                Envie uma mensagem, crie uma enquete ou inicie uma partida!
               </Text>
             </View>
           }
@@ -1025,21 +1180,304 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           }
         />
 
+        {/* Reply / Edit Context Bar */}
+        {(replyingTo || editingMessage) && (
+          <View style={styles.replyContextBar}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.replyContextTitle}>
+                {editingMessage
+                  ? 'Editando sua mensagem'
+                  : `Respondendo a ${replyingTo?.nickname}`}
+              </Text>
+              <Text style={styles.replyContextBody} numberOfLines={1}>
+                {editingMessage ? editingMessage.content : replyingTo?.content}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => {
+                setReplyingTo(null);
+                setEditingMessage(null);
+                setInputText('');
+              }}
+              style={styles.cancelContextBtn}
+            >
+              <Text style={styles.cancelContextBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Message Input Bar */}
         <View style={styles.inputContainer}>
+          <TouchableOpacity
+            style={styles.pollTriggerBtn}
+            onPress={() => setShowCreatePollModal(true)}
+          >
+            <Text style={styles.pollTriggerBtnText}>Enquete</Text>
+          </TouchableOpacity>
           <TextInput
             style={styles.textInput}
             value={inputText}
             onChangeText={handleInputChange}
-            placeholder={`Conversar como ${nickname}...`}
+            placeholder={
+              editingMessage
+                ? 'Edite sua mensagem...'
+                : `Conversar como ${nickname}...`
+            }
             placeholderTextColor="#888"
           />
           <TouchableOpacity style={styles.sendButton} onPress={handleSend} activeOpacity={0.8}>
-            <Text style={styles.sendButtonText}>Enviar</Text>
+            <Text style={styles.sendButtonText}>{editingMessage ? 'Salvar' : 'Enviar'}</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* MODAL: CRIAR ENQUETE */}
+      <Modal
+        visible={showCreatePollModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCreatePollModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Nova Enquete na Sala</Text>
+            <Text style={styles.modalSubtitle}>Crie uma votação rápida para o grupo:</Text>
+
+            <TextInput
+              style={styles.modalInput}
+              value={pollQuestion}
+              onChangeText={setPollQuestion}
+              placeholder="Pergunta da enquete..."
+              placeholderTextColor="#999"
+            />
+            <TextInput
+              style={styles.modalInput}
+              value={pollOptionA}
+              onChangeText={setPollOptionA}
+              placeholder="Opção 1"
+              placeholderTextColor="#999"
+            />
+            <TextInput
+              style={styles.modalInput}
+              value={pollOptionB}
+              onChangeText={setPollOptionB}
+              placeholder="Opção 2"
+              placeholderTextColor="#999"
+            />
+            <TextInput
+              style={styles.modalInput}
+              value={pollOptionC}
+              onChangeText={setPollOptionC}
+              placeholder="Opção 3 (opcional)"
+              placeholderTextColor="#999"
+            />
+
+            <TouchableOpacity
+              style={[styles.contactCheckRow, pollMultiSelect && styles.contactCheckRowActive]}
+              onPress={() => setPollMultiSelect((prev) => !prev)}
+            >
+              <Text style={styles.contactCheckName}>Permitir múltiplos votos</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.primaryModalBtn} onPress={handleCreatePollSubmit}>
+              <Text style={styles.primaryModalBtnText}>Publicar Enquete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.closeModalBtn}
+              onPress={() => setShowCreatePollModal(false)}
+            >
+              <Text style={styles.closeModalBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL: CONFIGURAR PARTIDA (DEBATE / QUIZ) */}
+      <Modal
+        visible={showGameSetupModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowGameSetupModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {gameSetupMode === 'debate' ? 'Configurar Modo Debate' : 'Configurar Quiz Relâmpago'}
+            </Text>
+
+            {gameSetupMode === 'debate' ? (
+              <View style={{ marginVertical: 10 }}>
+                <Text style={styles.modalSectionLabel}>Tema do Debate (opcional):</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={debateTopicInput}
+                  onChangeText={setDebateTopicInput}
+                  placeholder="Deixe em branco para sortear tema..."
+                  placeholderTextColor="#999"
+                />
+                <Text style={styles.modalSectionLabel}>Debatedor Lado A (Coral):</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={debateSideA}
+                  onChangeText={setDebateSideA}
+                  placeholder="Apelido Lado A"
+                  placeholderTextColor="#999"
+                />
+                <Text style={styles.modalSectionLabel}>Debatedor Lado B (Menta):</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={debateSideB}
+                  onChangeText={setDebateSideB}
+                  placeholder="Apelido Lado B"
+                  placeholderTextColor="#999"
+                />
+              </View>
+            ) : (
+              <View style={{ marginVertical: 10 }}>
+                <Text style={styles.modalSectionLabel}>Categoria:</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                  {['Todas', 'Tecnologia', 'Games', 'Ciência', 'História', 'Cultura Pop'].map((cat) => (
+                    <TouchableOpacity
+                      key={cat}
+                      onPress={() => setQuizCategory(cat)}
+                      style={[
+                        styles.pinCodeBtn,
+                        quizCategory === cat && { backgroundColor: colors.brand.primary },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.pinCodeBtnText,
+                          quizCategory === cat && { color: '#FFF' },
+                        ]}
+                      >
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.modalSectionLabel}>Dificuldade:</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                  {(['Todas', 'Fácil', 'Média', 'Difícil'] as TriviaDifficulty[]).map((diff) => (
+                    <TouchableOpacity
+                      key={diff}
+                      onPress={() => setQuizDifficulty(diff)}
+                      style={[
+                        styles.pinCodeBtn,
+                        quizDifficulty === diff && { backgroundColor: colors.brand.primary },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.pinCodeBtnText,
+                          quizDifficulty === diff && { color: '#FFF' },
+                        ]}
+                      >
+                        {diff}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.modalSectionLabel}>Rodadas ({quizRoundCount} perguntas):</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                  {[3, 5, 8, 10].map((cnt) => (
+                    <TouchableOpacity
+                      key={cnt}
+                      onPress={() => setQuizRoundCount(cnt)}
+                      style={[
+                        styles.pinCodeBtn,
+                        quizRoundCount === cnt && { backgroundColor: colors.brand.primary },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.pinCodeBtnText,
+                          quizRoundCount === cnt && { color: '#FFF' },
+                        ]}
+                      >
+                        {cnt}x
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.primaryModalBtn} onPress={handleConfirmLaunchGame}>
+              <Text style={styles.primaryModalBtnText}>Iniciar Partida na Sala</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.closeModalBtn}
+              onPress={() => setShowGameSetupModal(false)}
+            >
+              <Text style={styles.closeModalBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL: RANKING & HISTORICO DA SALA */}
+      <Modal
+        visible={showLeaderboardModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowLeaderboardModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Ranking & Histórico da Sala</Text>
+            <Text style={styles.modalSubtitle}>Pontuação oficial acumulada em Debates e Quizzes:</Text>
+
+            <ScrollView style={{ maxHeight: 320 }}>
+              {leaderboardData.length === 0 ? (
+                <Text style={styles.emptyStateText}>Nenhuma partida finalizada nesta sala ainda.</Text>
+              ) : (
+                leaderboardData.map((entry, idx) => (
+                  <View key={entry.user_id} style={styles.contactCheckRow}>
+                    <View style={styles.contactAvatarSmall}>
+                      <Text style={styles.contactAvatarSmallText}>#{idx + 1}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.contactCheckName}>{entry.nickname}</Text>
+                      <Text style={styles.contactCheckEmail}>
+                        {entry.debate_wins} vitórias Debate • {entry.quiz_wins} vitórias Quiz
+                      </Text>
+                    </View>
+                    <Text style={{ fontWeight: '900', color: colors.brand.primary }}>
+                      {entry.total_points} pts
+                    </Text>
+                  </View>
+                ))
+              )}
+
+              {historyData.length > 0 && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.modalSectionLabel}>Últimas Partidas:</Text>
+                  {historyData.slice(0, 5).map((m) => (
+                    <View key={m.id} style={styles.contactCheckRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.contactCheckName}>{m.title}</Text>
+                        <Text style={styles.contactCheckEmail}>
+                          Vencedor: {m.winner_label}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.primaryModalBtn, { marginTop: 12 }]}
+              onPress={() => setShowLeaderboardModal(false)}
+            >
+              <Text style={styles.primaryModalBtnText}>Fechar Ranking</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -1049,8 +1487,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
-
-  // WhatsApp Header
   waHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1110,8 +1546,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 12,
   },
-
-  // WhatsApp Tab Bar
   tabBar: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
@@ -1137,8 +1571,6 @@ const styles = StyleSheet.create({
     color: colors.brand.primary,
     fontWeight: '800',
   },
-
-  // Search
   searchContainer: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -1154,8 +1586,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#2D3436',
   },
-
-  // List Items
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 90,
@@ -1170,9 +1600,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F1F3F5',
     elevation: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
   },
   chatListItemSelected: {
     borderColor: colors.brand.primary,
@@ -1221,9 +1648,10 @@ const styles = StyleSheet.create({
     color: '#868E96',
   },
   chatArrow: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#CED4DA',
     marginLeft: 8,
+    fontWeight: 'bold',
   },
   contactBadge: {
     backgroundColor: '#E6FCF5',
@@ -1248,24 +1676,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   emptyState: {
-    padding: 32,
+    padding: 24,
     alignItems: 'center',
   },
   emptyStateText: {
     color: '#868E96',
     fontSize: 13,
   },
-
-  // Floating Action Button (FAB)
   fabContainer: {
     position: 'absolute',
     bottom: 24,
     right: 20,
     elevation: 6,
-    shadowColor: colors.brand.primary,
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
   },
   fabButton: {
     flexDirection: 'row',
@@ -1286,8 +1708,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 14,
   },
-
-  // Active Chat View Header
   chatViewHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1296,21 +1716,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#EBEBEB',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
     paddingRight: 8,
-  },
-  backButtonArrow: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.brand.primary,
   },
   backButtonText: {
     fontSize: 12,
@@ -1357,8 +1767,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '900',
   },
-
-  // Chat Area & Speech Bubbles
+  pinnedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0EFFE',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DCD6F7',
+  },
+  pinnedBannerTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.brand.primary,
+  },
+  pinnedBannerContent: {
+    fontSize: 12,
+    color: '#2D3436',
+  },
+  unpinBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#FFE3E3',
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  unpinBtnText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.brand.action,
+  },
   chatArea: {
     flex: 1,
   },
@@ -1374,10 +1813,19 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginVertical: 4,
   },
+  gameCardMessageContainer: {
+    backgroundColor: '#1E1E2E',
+    borderWidth: 1,
+    borderColor: colors.brand.reward,
+  },
   systemMessageText: {
     fontSize: 11,
     color: '#495057',
     fontWeight: '600',
+  },
+  gameCardMessageText: {
+    color: colors.brand.reward,
+    fontWeight: 'bold',
   },
   messageWrapper: {
     maxWidth: '82%',
@@ -1404,7 +1852,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
   },
   myBubble: {
-    backgroundColor: '#E7FFDB', // WhatsApp light mint
+    backgroundColor: '#E7FFDB',
     borderWidth: 1,
     borderColor: '#D0F0C0',
     borderBottomRightRadius: 4,
@@ -1414,10 +1862,79 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E9ECEF',
     borderBottomLeftRadius: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
+  },
+  replyPreviewBox: {
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderLeftWidth: 3,
+    borderLeftColor: colors.brand.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  replyPreviewSender: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.brand.primary,
+  },
+  replyPreviewContent: {
+    fontSize: 11,
+    color: '#495057',
+  },
+  pollContainer: {
+    minWidth: 210,
+    paddingVertical: 4,
+  },
+  pollBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: colors.brand.primary,
+    marginBottom: 4,
+  },
+  pollQuestionText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#2D3436',
+    marginBottom: 8,
+  },
+  pollOptionBtn: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#DEE2E6',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 5,
+  },
+  pollOptionBtnActive: {
+    backgroundColor: '#F0EFFE',
+    borderColor: colors.brand.primary,
+  },
+  pollOptionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2D3436',
+  },
+  pollOptionTextActive: {
+    color: colors.brand.primary,
+    fontWeight: '800',
+  },
+  pollOptionVotes: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#868E96',
+  },
+  closePollBtn: {
+    marginTop: 4,
+    alignSelf: 'flex-end',
+  },
+  closePollBtnText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.brand.action,
   },
   messageText: {
     fontSize: 14,
@@ -1429,36 +1946,34 @@ const styles = StyleSheet.create({
   otherMessageText: {
     color: '#2D3436',
   },
-
-  // Live Reaction Bar
-  reactionBar: {
+  replyContextBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F1F3F5',
     paddingHorizontal: 14,
-    paddingVertical: 6,
-    backgroundColor: '#FFFFFF',
+    paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: '#F1F3F5',
+    borderTopColor: '#DEE2E6',
   },
-  reactionBarLabel: {
+  replyContextTitle: {
     fontSize: 10,
-    color: '#868E96',
-    fontWeight: '700',
-    marginRight: 6,
+    fontWeight: '800',
+    color: colors.brand.primary,
   },
-  reactionRow: {
-    flexDirection: 'row',
-    flex: 1,
-    justifyContent: 'space-around',
+  replyContextBody: {
+    fontSize: 12,
+    color: '#495057',
   },
-  reactionButton: {
-    padding: 4,
+  cancelContextBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  reactionEmoji: {
-    fontSize: 20,
+  cancelContextBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: colors.brand.action,
   },
-
-  // Input Bar
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1467,6 +1982,17 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#EBEBEB',
     gap: 8,
+  },
+  pollTriggerBtn: {
+    backgroundColor: '#F0EFFE',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 16,
+  },
+  pollTriggerBtnText: {
+    color: colors.brand.primary,
+    fontSize: 11,
+    fontWeight: '800',
   },
   textInput: {
     flex: 1,
@@ -1490,14 +2016,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 13,
   },
-
-  // Floating Emoji
-  floatingEmoji: {
-    position: 'absolute',
-    zIndex: 9999,
-  },
-
-  // Modals
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -1508,9 +2026,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 22,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
     elevation: 8,
   },
   modalHeaderRow: {
@@ -1524,7 +2039,7 @@ const styles = StyleSheet.create({
     color: '#2D3436',
   },
   modalCloseX: {
-    fontSize: 18,
+    fontSize: 13,
     color: '#868E96',
     fontWeight: 'bold',
   },
@@ -1543,7 +2058,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 14,
     color: '#2D3436',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   pinInput: {
     letterSpacing: 2,
@@ -1555,7 +2070,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#495057',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   contactCheckRow: {
     flexDirection: 'row',
@@ -1595,8 +2110,8 @@ const styles = StyleSheet.create({
     color: '#868E96',
   },
   checkboxBox: {
-    width: 22,
-    height: 22,
+    width: 24,
+    height: 24,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: '#CED4DA',
@@ -1609,7 +2124,7 @@ const styles = StyleSheet.create({
   },
   checkboxCheck: {
     color: '#FFF',
-    fontSize: 12,
+    fontSize: 9,
     fontWeight: 'bold',
   },
   primaryModalBtn: {
@@ -1633,12 +2148,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 13,
   },
-
   messageFooterRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: 3,
+  },
+  editedBadgeText: {
+    fontSize: 9,
+    fontStyle: 'italic',
+    color: '#868E96',
   },
   messageTimeText: {
     fontSize: 10,
@@ -1646,19 +2165,9 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   checkMarkText: {
-    fontSize: 11,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '800',
     color: colors.brand.primary,
-  },
-  pasteCodeBtn: {
-    paddingVertical: 8,
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  pasteCodeBtnText: {
-    color: colors.brand.primary,
-    fontWeight: 'bold',
-    fontSize: 12,
   },
   typingRow: {
     paddingHorizontal: 12,
@@ -1685,20 +2194,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  leaveRoomIconBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: '#E9ECEF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 4,
-  },
-  leaveRoomIconText: {
-    color: '#666',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
   reactionPillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1721,7 +2216,9 @@ const styles = StyleSheet.create({
     borderColor: '#C4B5FD',
   },
   reactionPillEmoji: {
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.brand.primary,
   },
   reactionPillCount: {
     fontSize: 10,
@@ -1733,10 +2230,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 32,
     marginTop: 60,
-  },
-  emptyMessagesEmoji: {
-    fontSize: 40,
-    marginBottom: 10,
   },
   emptyMessagesTitle: {
     fontSize: 15,
@@ -1751,4 +2244,3 @@ const styles = StyleSheet.create({
     maxWidth: 240,
   },
 });
-
