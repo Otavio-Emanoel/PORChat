@@ -44,6 +44,12 @@ func main() {
 	hub := ws.NewHub(roomStore)
 	go hub.Run()
 
+	chatHandler.OnRoomBroadcast = func(roomID, event string, payload interface{}) {
+		if env, err := ws.NewEnvelope(event, roomID, payload); err == nil {
+			hub.BroadcastToRoom(roomID, env)
+		}
+	}
+
 	gameManager := game.NewManager(hub, roomStore)
 	hub.SetEngineGetter(func(roomID string) ws.GameEngine {
 		return gameManager.GetEngine(roomID)
@@ -82,7 +88,7 @@ func main() {
 		AllowedOrigins:   []string{"http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:8082", "http://127.0.0.1:8082", "http://localhost:8081", "https://porchat.app"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link", "Retry-After"},
+		ExposedHeaders:   []string{"Link", "Retry-After", "X-Content-SHA256"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
@@ -116,17 +122,30 @@ func main() {
 		r.Post("/register", authHandler.Register)
 		r.Post("/login", authHandler.Login)
 		r.Post("/logout", authHandler.Logout)
+		r.Post("/refresh", authHandler.RefreshToken)
 		r.Get("/me", authHandler.Me)
+		r.Put("/profile", authHandler.UpdateProfile)
+		r.Put("/password", authHandler.ChangePassword)
 	})
-	r.Get("/api/users", authHandler.ListUsers)
 
-	// Rooms & Chat routes
+	r.Get("/api/users", authHandler.ListUsers)
+	r.Get("/api/users/search", authHandler.SearchUsers)
+	r.Get("/api/users/{id}/stats", gameManager.StatsStore().GetUserStatsHTTP)
+	r.Get("/api/attachments/{attId}", chatHandler.ServeAttachmentHTTP)
+
+	// Rooms, Chat, Polls, Attachments, Leaderboards & Custom Banks
 	r.Route("/api/rooms", func(r chi.Router) {
 		r.Get("/", chatHandler.ListRooms)
 		r.Post("/", chatHandler.CreateRoom)
 		r.Post("/join", chatHandler.JoinRoom)
 		r.Get("/code/{code}", chatHandler.GetRoomByCode)
 		r.Get("/{id}", chatHandler.GetRoom)
+		r.Put("/{id}/settings", chatHandler.UpdateGroupSettingsHTTP)
+		r.Post("/{id}/leave", chatHandler.LeaveRoomHTTP)
+		r.Post("/{id}/members", chatHandler.AddMembersHTTP)
+		r.Delete("/{id}/members/{member}", chatHandler.RemoveMemberHTTP)
+		r.Post("/{id}/admins", chatHandler.ToggleAdminHTTP)
+		r.Post("/{id}/code/regenerate", chatHandler.RegenerateCodeHTTP)
 		r.Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {
 			roomID := chi.URLParam(r, "id")
 			chatHandler.DeleteRoom(w, r)
@@ -134,6 +153,20 @@ func main() {
 			auditLogger.Log(security.EventRoomDelete, security.SeverityWarn, security.ExtractClientIP(r), "", roomID, "Room deleted via API", nil)
 		})
 		r.Get("/{id}/messages", chatHandler.GetMessages)
+		r.Put("/{id}/messages/{msgId}", chatHandler.EditMessageHTTP)
+		r.Post("/{id}/pin", chatHandler.PinMessageHTTP)
+		r.Delete("/{id}/pin", chatHandler.UnpinMessageHTTP)
+		r.Post("/{id}/read", chatHandler.MarkReadHTTP)
+		r.Post("/{id}/polls", chatHandler.CreatePollHTTP)
+		r.Post("/{id}/polls/{msgId}/vote", chatHandler.VotePollHTTP)
+		r.Post("/{id}/polls/{msgId}/close", chatHandler.ClosePollHTTP)
+		r.Post("/{id}/attachments", chatHandler.UploadAttachmentHTTP)
+		r.Get("/{id}/leaderboard", gameManager.StatsStore().GetRoomLeaderboardHTTP)
+		r.Get("/{id}/history", gameManager.StatsStore().GetRoomHistoryHTTP)
+		r.Get("/{id}/topics", gameManager.CustomBank().ListRoomTopicsHTTP)
+		r.Post("/{id}/topics", gameManager.CustomBank().CreateRoomTopicHTTP)
+		r.Get("/{id}/questions", gameManager.CustomBank().ListRoomQuestionsHTTP)
+		r.Post("/{id}/questions", gameManager.CustomBank().CreateRoomQuestionHTTP)
 	})
 
 	// WebSocket route

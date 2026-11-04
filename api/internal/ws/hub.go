@@ -164,7 +164,8 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 	switch env.Event {
 	case "chat:send":
 		var p struct {
-			Content string `json:"content"`
+			Content   string `json:"content"`
+			ReplyToID string `json:"reply_to_id"`
 		}
 		if err := json.Unmarshal(env.Payload, &p); err == nil && p.Content != "" {
 			trimmed := strings.TrimSpace(p.Content)
@@ -185,12 +186,149 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 				Nickname:  c.Nickname,
 				Content:   sanitizedContent,
 				Type:      "text",
+				ReplyToID: strings.TrimSpace(p.ReplyToID),
+				ReadBy:    []string{c.Nickname},
 				CreatedAt: time.Now(),
 			}
 			h.chatStore.AddMessage(chatMsg)
 
 			if outEnv, err := NewEnvelope("chat:new_message", c.RoomID, chatMsg); err == nil {
 				h.BroadcastToRoom(c.RoomID, outEnv)
+			}
+		}
+
+	case "chat:edit_message":
+		var p struct {
+			MessageID string `json:"message_id"`
+			Content   string `json:"content"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.MessageID != "" && p.Content != "" {
+			actor := c.Nickname
+			if actor == "" {
+				actor = c.UserID
+			}
+			if updated, ok := h.chatStore.EditMessage(c.RoomID, p.MessageID, actor, p.Content); ok {
+				payload := map[string]interface{}{
+					"message_id": updated.ID,
+					"room_id":    c.RoomID,
+					"content":    updated.Content,
+					"edited_at":  updated.EditedAt,
+					"is_edited":  updated.IsEdited,
+				}
+				if outEnv, err := NewEnvelope("chat:message_edited", c.RoomID, payload); err == nil {
+					h.BroadcastToRoom(c.RoomID, outEnv)
+				}
+			}
+		}
+
+	case "chat:pin_message":
+		var p struct {
+			MessageID string `json:"message_id"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.MessageID != "" {
+			actor := c.Nickname
+			if actor == "" {
+				actor = c.UserID
+			}
+			if pinInfo, ok := h.chatStore.PinMessage(c.RoomID, p.MessageID, actor); ok {
+				payload := map[string]interface{}{
+					"room_id":        c.RoomID,
+					"pinned_message": pinInfo,
+				}
+				if outEnv, err := NewEnvelope("chat:pin_updated", c.RoomID, payload); err == nil {
+					h.BroadcastToRoom(c.RoomID, outEnv)
+				}
+			}
+		}
+
+	case "chat:unpin_message":
+		if h.chatStore.UnpinMessage(c.RoomID) {
+			payload := map[string]interface{}{
+				"room_id":        c.RoomID,
+				"pinned_message": nil,
+			}
+			if outEnv, err := NewEnvelope("chat:pin_updated", c.RoomID, payload); err == nil {
+				h.BroadcastToRoom(c.RoomID, outEnv)
+			}
+		}
+
+	case "chat:mark_read":
+		var p struct {
+			MessageIDs []string `json:"message_ids"`
+		}
+		_ = json.Unmarshal(env.Payload, &p)
+		reader := c.Nickname
+		if reader == "" {
+			reader = c.UserID
+		}
+		updatedIDs := h.chatStore.MarkMessagesRead(c.RoomID, reader, p.MessageIDs)
+		if len(updatedIDs) > 0 {
+			payload := map[string]interface{}{
+				"room_id":     c.RoomID,
+				"user_id":     c.UserID,
+				"nickname":    c.Nickname,
+				"message_ids": updatedIDs,
+				"read_at":     time.Now().Format(time.RFC3339),
+			}
+			if outEnv, err := NewEnvelope("chat:read_receipt", c.RoomID, payload); err == nil {
+				h.BroadcastToRoom(c.RoomID, outEnv)
+			}
+		}
+
+	case "chat:create_poll":
+		var p struct {
+			Question    string   `json:"question"`
+			Options     []string `json:"options"`
+			MultiSelect bool     `json:"multi_select"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.Question != "" {
+			if msg, err := h.chatStore.CreatePoll(c.RoomID, c.UserID, c.Nickname, p.Question, p.Options, p.MultiSelect); err == nil {
+				if outEnv, err := NewEnvelope("chat:new_message", c.RoomID, msg); err == nil {
+					h.BroadcastToRoom(c.RoomID, outEnv)
+				}
+			}
+		}
+
+	case "chat:vote_poll":
+		var p struct {
+			MessageID string `json:"message_id"`
+			OptionID  string `json:"option_id"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.MessageID != "" && p.OptionID != "" {
+			voter := c.Nickname
+			if voter == "" {
+				voter = c.UserID
+			}
+			if poll, err := h.chatStore.VotePoll(c.RoomID, p.MessageID, p.OptionID, voter); err == nil {
+				payload := map[string]interface{}{
+					"room_id":    c.RoomID,
+					"message_id": p.MessageID,
+					"poll":       poll,
+				}
+				if outEnv, err := NewEnvelope("chat:poll_updated", c.RoomID, payload); err == nil {
+					h.BroadcastToRoom(c.RoomID, outEnv)
+				}
+			}
+		}
+
+	case "chat:close_poll":
+		var p struct {
+			MessageID string `json:"message_id"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.MessageID != "" {
+			actor := c.Nickname
+			if actor == "" {
+				actor = c.UserID
+			}
+			if poll, err := h.chatStore.ClosePoll(c.RoomID, p.MessageID, actor); err == nil {
+				payload := map[string]interface{}{
+					"room_id":    c.RoomID,
+					"message_id": p.MessageID,
+					"poll":       poll,
+				}
+				if outEnv, err := NewEnvelope("chat:poll_updated", c.RoomID, payload); err == nil {
+					h.BroadcastToRoom(c.RoomID, outEnv)
+				}
 			}
 		}
 
@@ -258,8 +396,8 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 		}
 
 	case "game:start", "game:pause", "game:resume", "game:skip_phase", "game:abort",
-		"debate:submit_argument", "debate:cast_vote", "debate:reaction",
-		"quiz:submit_answer":
+		"debate:player_ready", "debate:submit_argument", "debate:ask_question",
+		"debate:cast_vote", "debate:reaction", "quiz:submit_answer":
 		if h.engineGetter != nil {
 			if eng := h.engineGetter(c.RoomID); eng != nil {
 				eng.HandleAction(c, env)
