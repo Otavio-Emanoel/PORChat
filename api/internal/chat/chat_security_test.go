@@ -74,7 +74,7 @@ func TestRoomStore_ConcurrentReactionToggles(t *testing.T) {
 	var wg sync.WaitGroup
 	workers := 20
 	iterations := 30
-	emojis := []string{"🔥", "❤️", "👍", "👏"}
+	emojis := []string{"LIKED", "AGREE", "LAUGH", "TROPHY"}
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)

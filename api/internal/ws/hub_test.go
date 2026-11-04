@@ -164,7 +164,7 @@ func TestHub_InboundChatSendAndReaction(t *testing.T) {
 	// Send reaction on last message
 	reactPayload, _ := json.Marshal(map[string]string{
 		"message_id": lastMsg.ID,
-		"emoji":      "🔥",
+		"emoji":      "LIKED",
 	})
 	hub.Inbound <- &InboundMessage{
 		Client: c,
@@ -179,8 +179,8 @@ func TestHub_InboundChatSendAndReaction(t *testing.T) {
 	// Check reaction state
 	msgsAfter := roomStore.GetMessages(room.ID, 10)
 	lastMsgAfter := msgsAfter[len(msgsAfter)-1]
-	if len(lastMsgAfter.Reactions["🔥"]) != 1 {
-		t.Errorf("Expected 1 reaction for 🔥, got %v", lastMsgAfter.Reactions["🔥"])
+	if len(lastMsgAfter.Reactions["LIKED"]) != 1 {
+		t.Errorf("Expected 1 reaction for LIKED, got %v", lastMsgAfter.Reactions["LIKED"])
 	}
 
 	// Send delete message

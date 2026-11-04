@@ -216,7 +216,7 @@ func TestDebateFSM_ConcurrentVoting(t *testing.T) {
 	}
 
 	// Trigger reactions
-	for _, emoji := range []string{"🔥", "💀", "🍅", "👏"} {
+	for _, emoji := range []string{"LIKED", "AGREE", "LAUGH", "TROPHY"} {
 		engine.TriggerReaction(emoji)
 	}
 	time.Sleep(10 * time.Millisecond)

@@ -170,30 +170,30 @@ func TestRoomStore_ToggleReaction(t *testing.T) {
 	store.AddMessage(msg)
 
 	// Add reaction
-	reactions, ok := store.ToggleReaction(room.ID, "msg-reaction-1", "🔥", "user-1")
+	reactions, ok := store.ToggleReaction(room.ID, "msg-reaction-1", "LIKED", "user-1")
 	if !ok {
 		t.Fatalf("ToggleReaction failed to add reaction")
 	}
-	if len(reactions["🔥"]) != 1 || reactions["🔥"][0] != "user-1" {
-		t.Errorf("Expected 1 reaction from user-1, got %v", reactions["🔥"])
+	if len(reactions["LIKED"]) != 1 || reactions["LIKED"][0] != "user-1" {
+		t.Errorf("Expected 1 reaction from user-1, got %v", reactions["LIKED"])
 	}
 
 	// Add second user reaction
-	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "🔥", "user-2")
-	if !ok || len(reactions["🔥"]) != 2 {
-		t.Errorf("Expected 2 reactions for 🔥, got %v", reactions["🔥"])
+	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "LIKED", "user-2")
+	if !ok || len(reactions["LIKED"]) != 2 {
+		t.Errorf("Expected 2 reactions for LIKED, got %v", reactions["LIKED"])
 	}
 
 	// Remove user-1 reaction (toggle off)
-	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "🔥", "user-1")
-	if !ok || len(reactions["🔥"]) != 1 || reactions["🔥"][0] != "user-2" {
-		t.Errorf("Expected only user-2 left after toggle, got %v", reactions["🔥"])
+	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "LIKED", "user-1")
+	if !ok || len(reactions["LIKED"]) != 1 || reactions["LIKED"][0] != "user-2" {
+		t.Errorf("Expected only user-2 left after toggle, got %v", reactions["LIKED"])
 	}
 
 	// Remove user-2 reaction -> key should be deleted
-	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "🔥", "user-2")
-	if !ok || len(reactions["🔥"]) != 0 {
-		t.Errorf("Expected empty reactions for 🔥, got %v", reactions["🔥"])
+	reactions, ok = store.ToggleReaction(room.ID, "msg-reaction-1", "LIKED", "user-2")
+	if !ok || len(reactions["LIKED"]) != 0 {
+		t.Errorf("Expected empty reactions for LIKED, got %v", reactions["LIKED"])
 	}
 }
 
