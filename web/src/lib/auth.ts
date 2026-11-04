@@ -3,7 +3,11 @@ export interface User {
   nickname: string;
   email: string;
   avatar_url?: string;
+  avatar_color?: string;
+  status_text?: string;
+  bio?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface AuthResponse {
@@ -38,6 +42,12 @@ export function setStoredSession(user: User, token: string) {
   if (typeof window === 'undefined') return;
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   localStorage.setItem(TOKEN_KEY, token);
+  if (user.avatar_color) {
+    localStorage.setItem('porchat_avatar_color', user.avatar_color);
+  }
+  if (user.status_text) {
+    localStorage.setItem('porchat_status_text', user.status_text);
+  }
 }
 
 export function clearStoredSession() {
@@ -79,7 +89,11 @@ export async function validateSession(): Promise<User | null> {
       return null;
     }
     const data = await res.json();
-    return data.user || null;
+    const user: User | null = data?.id ? data : data?.user || null;
+    if (user) {
+      setStoredSession(user, token);
+    }
+    return user;
   } catch {
     return getStoredUser();
   }

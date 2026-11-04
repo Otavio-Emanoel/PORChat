@@ -4,10 +4,14 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import type {
   WebSocketEnvelope,
   ChatMessage,
+  ChatPoll,
+  PinnedMessageInfo,
+  Room,
   SysConnectedPayload,
   SysUserJoinedPayload,
   SysUserLeftPayload,
   GameStateUpdatePayload,
+  TvReactionStreamPayload,
   ClientType,
 } from './types';
 
@@ -30,6 +34,14 @@ export function useWebSocket({
   const [onlineUsers, setOnlineUsers] = useState<Array<{ id: string; nickname: string }>>([]);
   const [gameState, setGameState] = useState<GameStateUpdatePayload | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<string, { nickname: string; timestamp: number }>>({});
+  const [pinnedMessage, setPinnedMessage] = useState<PinnedMessageInfo | null>(null);
+  const [roomUpdate, setRoomUpdate] = useState<Room | null>(null);
+  const [lastReactionEvent, setLastReactionEvent] = useState<{
+    id: string;
+    emoji: string;
+    from?: string;
+    timestamp: number;
+  } | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -46,6 +58,8 @@ export function useWebSocket({
     setMessages([]);
     setGameState(null);
     setTypingUsers({});
+    setPinnedMessage(null);
+    setRoomUpdate(null);
     let isCancelled = false;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
 
@@ -99,12 +113,90 @@ export function useWebSocket({
           return;
         }
         setMessages((prev) => {
-          // Strictly deduplicate by message ID
           if (prev.some((m) => m.id === msg.id)) {
             return prev;
           }
           return [...prev, msg];
         });
+        break;
+      }
+
+      case 'chat:message_edited': {
+        const p = envelope.payload as {
+          message_id: string;
+          content: string;
+          edited_at: string;
+          is_edited: boolean;
+        };
+        if (p && p.message_id) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === p.message_id
+                ? { ...m, content: p.content, edited_at: p.edited_at, is_edited: true }
+                : m
+            )
+          );
+          setPinnedMessage((prev) =>
+            prev && prev.message_id === p.message_id ? { ...prev, content: p.content } : prev
+          );
+        }
+        break;
+      }
+
+      case 'chat:pin_updated': {
+        const p = envelope.payload as {
+          room_id: string;
+          pinned_message: PinnedMessageInfo | null;
+        };
+        setPinnedMessage(p?.pinned_message || null);
+        break;
+      }
+
+      case 'chat:read_receipt': {
+        const p = envelope.payload as {
+          room_id: string;
+          user_id: string;
+          nickname: string;
+          message_ids: string[];
+        };
+        if (p && Array.isArray(p.message_ids) && p.nickname) {
+          const idSet = new Set(p.message_ids);
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (!idSet.has(m.id)) return m;
+              const existing = m.read_by || [];
+              if (existing.some((r) => r.toLowerCase() === p.nickname.toLowerCase())) {
+                return m;
+              }
+              return { ...m, read_by: [...existing, p.nickname] };
+            })
+          );
+        }
+        break;
+      }
+
+      case 'chat:poll_updated': {
+        const p = envelope.payload as {
+          room_id: string;
+          message_id: string;
+          poll: ChatPoll;
+        };
+        if (p && p.message_id && p.poll) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === p.message_id ? { ...m, poll: p.poll } : m))
+          );
+        }
+        break;
+      }
+
+      case 'room:updated': {
+        const p = envelope.payload as { room: Room };
+        if (p?.room) {
+          setRoomUpdate(p.room);
+          if (p.room.pinned_message !== undefined) {
+            setPinnedMessage(p.room.pinned_message || null);
+          }
+        }
         break;
       }
 
@@ -124,6 +216,20 @@ export function useWebSocket({
             phase_ends_at: tick.phase_ends_at,
           };
         });
+        break;
+      }
+
+      case 'tv:reaction_stream': {
+        const p = envelope.payload as TvReactionStreamPayload;
+        const firstReaction = p?.emoji || p?.reactions?.[0]?.emoji;
+        if (firstReaction) {
+          setLastReactionEvent({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            emoji: firstReaction,
+            from: p.from,
+            timestamp: Date.now(),
+          });
+        }
         break;
       }
 
@@ -162,6 +268,7 @@ export function useWebSocket({
         const p = envelope.payload as { message_id: string };
         if (p && p.message_id) {
           setMessages((prev) => prev.filter((m) => m.id !== p.message_id));
+          setPinnedMessage((prev) => (prev && prev.message_id === p.message_id ? null : prev));
         }
         break;
       }
@@ -183,7 +290,6 @@ export function useWebSocket({
   const connect = useCallback(() => {
     if (!roomId || !nickname) return;
 
-    // Clean up any existing connection before opening a new one
     if (socketRef.current) {
       isClosingExplicitlyRef.current = true;
       socketRef.current.onopen = null;
@@ -221,7 +327,6 @@ export function useWebSocket({
 
       ws.onclose = () => {
         setIsConnected(false);
-        // Only reconnect if this wasn't an intentional teardown
         if (!isClosingExplicitlyRef.current) {
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
@@ -284,40 +389,91 @@ export function useWebSocket({
     return () => clearInterval(interval);
   }, []);
 
-  const sendMessage = (content: string) => {
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
-    const envelope: WebSocketEnvelope = {
-      event: 'chat:send',
-      room_id: roomId,
-      timestamp: Date.now(),
-      payload: { content },
-    };
-    socketRef.current.send(JSON.stringify(envelope));
-  };
+  const sendAction = useCallback(
+    (event: string, payload: unknown) => {
+      if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+      const envelope: WebSocketEnvelope = {
+        event,
+        room_id: roomId,
+        timestamp: Date.now(),
+        payload,
+      };
+      socketRef.current.send(JSON.stringify(envelope));
+    },
+    [roomId]
+  );
 
-  const sendTyping = (isTyping: boolean) => {
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
-    const envelope: WebSocketEnvelope = {
-      event: 'chat:typing',
-      room_id: roomId,
-      timestamp: Date.now(),
-      payload: { is_typing: isTyping },
-    };
-    socketRef.current.send(JSON.stringify(envelope));
-  };
+  const sendMessage = useCallback(
+    (content: string, replyToId?: string) => {
+      sendAction('chat:send', {
+        content,
+        ...(replyToId ? { reply_to_id: replyToId } : {}),
+      });
+    },
+    [sendAction]
+  );
 
-  const sendAction = (event: string, payload: unknown) => {
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
-    const envelope: WebSocketEnvelope = {
-      event,
-      room_id: roomId,
-      timestamp: Date.now(),
-      payload,
-    };
-    socketRef.current.send(JSON.stringify(envelope));
-  };
+  const editMessage = useCallback(
+    (messageId: string, content: string) => {
+      sendAction('chat:edit_message', { message_id: messageId, content });
+    },
+    [sendAction]
+  );
 
-  // Heartbeat ping to measure latency (Item 77)
+  const pinMessage = useCallback(
+    (messageId: string) => {
+      sendAction('chat:pin_message', { message_id: messageId });
+    },
+    [sendAction]
+  );
+
+  const unpinMessage = useCallback(() => {
+    sendAction('chat:unpin_message', {});
+  }, [sendAction]);
+
+  const markMessagesRead = useCallback(
+    (messageIds?: string[]) => {
+      sendAction('chat:mark_read', { message_ids: messageIds || [] });
+    },
+    [sendAction]
+  );
+
+  const createPoll = useCallback(
+    (question: string, options: string[], multiSelect = false) => {
+      sendAction('chat:create_poll', {
+        question,
+        options,
+        multi_select: multiSelect,
+      });
+    },
+    [sendAction]
+  );
+
+  const votePoll = useCallback(
+    (messageId: string, optionId: string) => {
+      sendAction('chat:vote_poll', {
+        message_id: messageId,
+        option_id: optionId,
+      });
+    },
+    [sendAction]
+  );
+
+  const closePoll = useCallback(
+    (messageId: string) => {
+      sendAction('chat:close_poll', { message_id: messageId });
+    },
+    [sendAction]
+  );
+
+  const sendTyping = useCallback(
+    (isTyping: boolean) => {
+      sendAction('chat:typing', { is_typing: isTyping });
+    },
+    [sendAction]
+  );
+
+  // Heartbeat ping to measure latency
   useEffect(() => {
     if (!isConnected) return;
     const sendPing = () => {
@@ -345,9 +501,19 @@ export function useWebSocket({
     onlineUsers,
     gameState,
     typingUsers,
+    pinnedMessage,
+    setPinnedMessage,
+    roomUpdate,
+    lastReactionEvent,
     sendMessage,
+    editMessage,
+    pinMessage,
+    unpinMessage,
+    markMessagesRead,
+    createPoll,
+    votePoll,
+    closePoll,
     sendTyping,
     sendAction,
   };
 }
-
