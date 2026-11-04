@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/porchat/api/internal/security"
 	"github.com/porchat/api/internal/ws"
 )
 
@@ -35,6 +38,8 @@ var curatedTopics = []DebateTopic{
 	{Topic: "Dark Mode vs Light Mode para trabalhar", Category: "Tech", SideALabel: "Dark Mode", SideBLabel: "Light Mode"},
 	{Topic: "Vim vs VS Code para programar", Category: "Tech", SideALabel: "Vim / Neovim", SideBLabel: "VS Code"},
 	{Topic: "Monolito bem feito vs Arquitetura de Microsserviços", Category: "Tech", SideALabel: "Monolito Fiel", SideBLabel: "Microsserviços"},
+	{Topic: "Go vs Rust para sistemas de alta concorrência", Category: "Tech", SideALabel: "Go (Simplicidade)", SideBLabel: "Rust (Zero-Cost)"},
+	{Topic: " Trabalho 100% Remoto vs Modelo Híbrido em Tecnologia", Category: "Tech", SideALabel: "100% Remoto", SideBLabel: "Híbrido Presencial"},
 
 	// Polêmicas Cotidianas
 	{Topic: "Biscoito ou Bolacha?", Category: "Cotidiano", SideALabel: "Biscoito", SideBLabel: "Bolacha"},
@@ -46,7 +51,7 @@ var curatedTopics = []DebateTopic{
 	// Alta Gastronomia de Boteco
 	{Topic: "Abacaxi na pizza é crime hediondo ou alta gastronomia?", Category: "Gastronomia", SideALabel: "Crime Culinário", SideBLabel: "Alta Gastronomia"},
 	{Topic: "Strogonoff se come com batata palha ou purê de batata?", Category: "Gastronomia", SideALabel: "Batata Palha Crocante", SideBLabel: "Purê Cremoso"},
-	{Topic: "Coxinha se come pela pontinha ou pela bunda?", Category: "Gastronomia", SideALabel: "Pela Pontinha", SideBLabel: "Pela Bunda Recheada"},
+	{Topic: "Coxinha se come pela pontinha ou pela base?", Category: "Gastronomia", SideALabel: "Pela Pontinha", SideBLabel: "Pela Base Recheada"},
 	{Topic: "Cachorro-quente tem que levar purê de batata?", Category: "Gastronomia", SideALabel: "Com Purê (SP)", SideBLabel: "Sem Purê (Raiz)"},
 	{Topic: "Pizza fria no café da manhã é banquete dos deuses?", Category: "Gastronomia", SideALabel: "Manjar dos Deuses", SideBLabel: "Desespero Matinal"},
 
@@ -59,34 +64,65 @@ var curatedTopics = []DebateTopic{
 }
 
 type Debater struct {
-	ID       string `json:"id"`
-	Nickname string `json:"nickname"`
-	Avatar   string `json:"avatar,omitempty"`
-	Argument string `json:"argument,omitempty"`
-	Votes    int    `json:"votes"`
+	ID               string `json:"id"`
+	Nickname         string `json:"nickname"`
+	Avatar           string `json:"avatar,omitempty"`
+	Argument         string `json:"argument,omitempty"`
+	OpeningArgument  string `json:"opening_argument,omitempty"`
+	RebuttalArgument string `json:"rebuttal_argument,omitempty"`
+	Votes            int    `json:"votes"`
+	Ready            bool   `json:"ready,omitempty"`
+}
+
+type CourtQuestion struct {
+	ID         string `json:"id"`
+	UserID     string `json:"user_id"`
+	Nickname   string `json:"nickname"`
+	Question   string `json:"question"`
+	TargetSide string `json:"target_side,omitempty"` // "side_a", "side_b", "both"
+	CreatedAt  string `json:"created_at"`
 }
 
 type DebateState struct {
-	Topic            string         `json:"topic"`
-	Category         string         `json:"category,omitempty"`
-	SideALabel       string         `json:"side_a_label,omitempty"`
-	SideBLabel       string         `json:"side_b_label,omitempty"`
-	DebaterA         *Debater       `json:"debater_a"`
-	DebaterB         *Debater       `json:"debater_b"`
-	JurorIDs         []string       `json:"juror_ids,omitempty"`
-	CurrentSpeakerID string         `json:"current_speaker_id,omitempty"`
-	VotesCount       map[string]int `json:"votes_count"`
-	WinnerSide       string         `json:"winner_side,omitempty"`
-	IsPaused         bool           `json:"is_paused"`
+	Topic            string          `json:"topic"`
+	Category         string          `json:"category,omitempty"`
+	SideALabel       string          `json:"side_a_label,omitempty"`
+	SideBLabel       string          `json:"side_b_label,omitempty"`
+	DebaterA         *Debater        `json:"debater_a"`
+	DebaterB         *Debater        `json:"debater_b"`
+	JurorIDs         []string        `json:"juror_ids,omitempty"`
+	ReadyPlayers     []string        `json:"ready_players,omitempty"`
+	CourtQuestions   []CourtQuestion `json:"court_questions,omitempty"`
+	CurrentSpeakerID string          `json:"current_speaker_id,omitempty"`
+	VotesCount       map[string]int  `json:"votes_count"`
+	WinnerSide       string          `json:"winner_side,omitempty"`
+	IsPaused         bool            `json:"is_paused"`
+}
+
+type DebateConfig struct {
+	Topic           string
+	Category        string
+	DebaterAID      string
+	DebaterAName    string
+	DebaterBID      string
+	DebaterBName    string
+	OpeningSeconds  int
+	RebuttalSeconds int
+	VotingSeconds   int
 }
 
 type DebateEngine struct {
 	mu               sync.RWMutex
 	roomID           string
 	hub              *ws.Hub
+	statsStore       *StatsStore
+	customBank       *CustomBankStore
 	phase            DebatePhase
 	phaseEndsAt      time.Time
 	remainingSeconds int
+	openingSeconds   int
+	rebuttalSeconds  int
+	votingSeconds    int
 	isPaused         bool
 	state            *DebateState
 	voters           map[string]string // userID -> side
@@ -97,13 +133,23 @@ type DebateEngine struct {
 
 func NewDebateEngine(roomID string, hub *ws.Hub) *DebateEngine {
 	return &DebateEngine{
-		roomID:         roomID,
-		hub:            hub,
-		phase:          PhaseChat,
-		voters:         make(map[string]string),
-		stopTicker:     make(chan struct{}),
-		reactionBuffer: make(map[string]int),
+		roomID:          roomID,
+		hub:             hub,
+		phase:           PhaseChat,
+		openingSeconds:  45,
+		rebuttalSeconds: 30,
+		votingSeconds:   20,
+		voters:          make(map[string]string),
+		stopTicker:      make(chan struct{}),
+		reactionBuffer:  make(map[string]int),
 	}
+}
+
+func (e *DebateEngine) SetStores(stats *StatsStore, bank *CustomBankStore) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.statsStore = stats
+	e.customBank = bank
 }
 
 func (e *DebateEngine) IsActive() bool {
@@ -139,7 +185,12 @@ func (e *DebateEngine) GetState() *DebateState {
 func (e *DebateEngine) StartDebate(topic, category, debaterAID, debaterBID string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.startDebate(topic, category, debaterAID, debaterBID, nil)
+	e.startDebateWithConfig(DebateConfig{
+		Topic:      topic,
+		Category:   category,
+		DebaterAID: debaterAID,
+		DebaterBID: debaterBID,
+	}, nil)
 }
 
 func (e *DebateEngine) SkipPhase() {
@@ -175,37 +226,155 @@ func (e *DebateEngine) Abort() {
 	e.broadcastState()
 }
 
+func (e *DebateEngine) applyArgumentLocked(userID, nickname, rawArgument string) {
+	if e.state == nil {
+		return
+	}
+	cleanArg, err := security.ValidateChatMessage(strings.TrimSpace(rawArgument), 1, 1200)
+	if err != nil {
+		return
+	}
+
+	var target *Debater
+	if e.state.DebaterA != nil && (strings.EqualFold(userID, e.state.DebaterA.ID) || strings.EqualFold(nickname, e.state.DebaterA.Nickname) || strings.EqualFold(userID, e.state.DebaterA.Nickname)) {
+		target = e.state.DebaterA
+	} else if e.state.DebaterB != nil && (strings.EqualFold(userID, e.state.DebaterB.ID) || strings.EqualFold(nickname, e.state.DebaterB.Nickname) || strings.EqualFold(userID, e.state.DebaterB.Nickname)) {
+		target = e.state.DebaterB
+	} else if e.state.DebaterA != nil && e.state.DebaterA.Argument == "" {
+		target = e.state.DebaterA
+	} else if e.state.DebaterB != nil {
+		target = e.state.DebaterB
+	}
+
+	if target == nil {
+		return
+	}
+
+	if e.phase == PhaseRebuttal {
+		target.RebuttalArgument = cleanArg
+		target.Argument = cleanArg
+		if target.OpeningArgument == "" {
+			target.OpeningArgument = cleanArg
+		}
+	} else {
+		target.OpeningArgument = cleanArg
+		target.Argument = cleanArg
+	}
+}
+
 func (e *DebateEngine) SubmitArgument(userID, argument string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.state == nil || argument == "" {
+	e.applyArgumentLocked(userID, userID, argument)
+	e.broadcastState()
+}
+
+func (e *DebateEngine) MarkPlayerReady(userID, nickname string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.markPlayerReadyLocked(userID, nickname)
+}
+
+func (e *DebateEngine) markPlayerReadyLocked(userID, nickname string) {
+	if e.state == nil || e.phase != PhaseLobby {
 		return
 	}
-	if e.state.DebaterA != nil && (userID == e.state.DebaterA.ID || userID == e.state.DebaterA.Nickname) {
-		e.state.DebaterA.Argument = argument
-	} else if e.state.DebaterB != nil && (userID == e.state.DebaterB.ID || userID == e.state.DebaterB.Nickname) {
-		e.state.DebaterB.Argument = argument
-	} else {
-		if e.state.DebaterA.Argument == "" {
-			e.state.DebaterA.Argument = argument
-		} else {
-			e.state.DebaterB.Argument = argument
+
+	ident := nickname
+	if ident == "" {
+		ident = userID
+	}
+
+	alreadyInList := false
+	for _, r := range e.state.ReadyPlayers {
+		if strings.EqualFold(r, ident) || strings.EqualFold(r, userID) {
+			alreadyInList = true
+			break
 		}
 	}
+	if !alreadyInList && ident != "" {
+		e.state.ReadyPlayers = append(e.state.ReadyPlayers, ident)
+	}
+
+	if e.state.DebaterA != nil && (strings.EqualFold(userID, e.state.DebaterA.ID) || strings.EqualFold(nickname, e.state.DebaterA.Nickname) || strings.EqualFold(userID, e.state.DebaterA.Nickname)) {
+		e.state.DebaterA.Ready = true
+	}
+	if e.state.DebaterB != nil && (strings.EqualFold(userID, e.state.DebaterB.ID) || strings.EqualFold(nickname, e.state.DebaterB.Nickname) || strings.EqualFold(userID, e.state.DebaterB.Nickname)) {
+		e.state.DebaterB.Ready = true
+	}
+
+	e.broadcastState()
+
+	// If both debaters are ready in LOBBY, start OPENING_ARGUMENTS immediately!
+	if e.state.DebaterA != nil && e.state.DebaterB != nil && e.state.DebaterA.Ready && e.state.DebaterB.Ready {
+		e.onPhaseTimeout(PhaseLobby)
+	}
+}
+
+func (e *DebateEngine) AskCourtQuestion(userID, nickname, question, targetSide string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.askCourtQuestionLocked(userID, nickname, question, targetSide)
+}
+
+func (e *DebateEngine) askCourtQuestionLocked(userID, nickname, rawQuestion, targetSide string) {
+	if e.state == nil {
+		return
+	}
+	cleanQ, err := security.ValidateChatMessage(strings.TrimSpace(rawQuestion), 2, 280)
+	if err != nil {
+		return
+	}
+	if len(e.state.CourtQuestions) >= 20 {
+		return
+	}
+
+	side := strings.ToLower(strings.TrimSpace(targetSide))
+	if side != "side_a" && side != "side_b" {
+		side = "both"
+	}
+
+	nick := strings.TrimSpace(nickname)
+	if nick == "" {
+		nick = userID
+	}
+
+	cq := CourtQuestion{
+		ID:         uuid.New().String(),
+		UserID:     userID,
+		Nickname:   nick,
+		Question:   cleanQ,
+		TargetSide: side,
+		CreatedAt:  time.Now().Format(time.RFC3339),
+	}
+	e.state.CourtQuestions = append(e.state.CourtQuestions, cq)
 	e.broadcastState()
 }
 
 func (e *DebateEngine) CastVote(userID, choice string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.castVoteLocked(userID, userID, choice)
+}
+
+func (e *DebateEngine) castVoteLocked(userID, nickname, choice string) {
 	if e.phase != PhaseVoting || (choice != "side_a" && choice != "side_b") || e.state == nil {
 		return
 	}
-	prevChoice, alreadyVoted := e.voters[userID]
+
+	voterKey := strings.ToLower(strings.TrimSpace(userID))
+	if voterKey == "" {
+		voterKey = strings.ToLower(strings.TrimSpace(nickname))
+	}
+	if voterKey == "" {
+		return
+	}
+
+	prevChoice, alreadyVoted := e.voters[voterKey]
 	if alreadyVoted {
 		e.state.VotesCount[prevChoice]--
 	}
-	e.voters[userID] = choice
+	e.voters[voterKey] = choice
 	e.state.VotesCount[choice]++
 	if e.state.DebaterA != nil {
 		e.state.DebaterA.Votes = e.state.VotesCount["side_a"]
@@ -217,7 +386,7 @@ func (e *DebateEngine) CastVote(userID, choice string) {
 }
 
 func (e *DebateEngine) TriggerReaction(emoji string) {
-	e.recordReaction(emoji)
+	e.recordReaction(emoji, "Jurado")
 }
 
 func (e *DebateEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
@@ -227,14 +396,29 @@ func (e *DebateEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 	switch env.Event {
 	case "game:start":
 		var p struct {
-			GameType   string `json:"game_type"`
-			Topic      string `json:"topic"`
-			Category   string `json:"category"`
-			DebaterAID string `json:"debater_a_id"`
-			DebaterBID string `json:"debater_b_id"`
+			GameType        string `json:"game_type"`
+			Topic           string `json:"topic"`
+			Category        string `json:"category"`
+			DebaterAID      string `json:"debater_a_id"`
+			DebaterAName    string `json:"debater_a_name"`
+			DebaterBID      string `json:"debater_b_id"`
+			DebaterBName    string `json:"debater_b_name"`
+			OpeningSeconds  int    `json:"opening_seconds"`
+			RebuttalSeconds int    `json:"rebuttal_seconds"`
+			VotingSeconds   int    `json:"voting_seconds"`
 		}
 		_ = json.Unmarshal(env.Payload, &p)
-		e.startDebate(p.Topic, p.Category, p.DebaterAID, p.DebaterBID, client)
+		e.startDebateWithConfig(DebateConfig{
+			Topic:           p.Topic,
+			Category:        p.Category,
+			DebaterAID:      p.DebaterAID,
+			DebaterAName:    p.DebaterAName,
+			DebaterBID:      p.DebaterBID,
+			DebaterBName:    p.DebaterBName,
+			OpeningSeconds:  p.OpeningSeconds,
+			RebuttalSeconds: p.RebuttalSeconds,
+			VotingSeconds:   p.VotingSeconds,
+		}, client)
 
 	case "game:pause":
 		e.isPaused = true
@@ -258,50 +442,35 @@ func (e *DebateEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 		e.broadcastState()
 		log.Printf("[Room %s] Debate aborted by host.", e.roomID)
 
+	case "debate:player_ready":
+		if client != nil {
+			e.markPlayerReadyLocked(client.UserID, client.Nickname)
+		}
+
 	case "debate:submit_argument":
 		var p struct {
 			Argument string `json:"argument"`
 		}
-		if err := json.Unmarshal(env.Payload, &p); err == nil && p.Argument != "" {
-			if e.state != nil {
-				if e.state.DebaterA != nil && (client.UserID == e.state.DebaterA.ID || client.Nickname == e.state.DebaterA.Nickname) {
-					e.state.DebaterA.Argument = p.Argument
-				} else if e.state.DebaterB != nil && (client.UserID == e.state.DebaterB.ID || client.Nickname == e.state.DebaterB.Nickname) {
-					e.state.DebaterB.Argument = p.Argument
-				} else {
-					// Fallback: assign to whichever debater doesn't have an argument yet
-					if e.state.DebaterA.Argument == "" {
-						e.state.DebaterA.Argument = p.Argument
-					} else {
-						e.state.DebaterB.Argument = p.Argument
-					}
-				}
-				e.broadcastState()
-			}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.Argument != "" && client != nil {
+			e.applyArgumentLocked(client.UserID, client.Nickname, p.Argument)
+			e.broadcastState()
+		}
+
+	case "debate:ask_question":
+		var p struct {
+			Question   string `json:"question"`
+			TargetSide string `json:"target_side"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && p.Question != "" && client != nil {
+			e.askCourtQuestionLocked(client.UserID, client.Nickname, p.Question, p.TargetSide)
 		}
 
 	case "debate:cast_vote":
 		var p struct {
 			Choice string `json:"choice"` // "side_a" or "side_b"
 		}
-		if err := json.Unmarshal(env.Payload, &p); err == nil {
-			if e.phase == PhaseVoting && (p.Choice == "side_a" || p.Choice == "side_b") {
-				// Prevent duplicate vote change if already voted
-				prevChoice, alreadyVoted := e.voters[client.UserID]
-				if alreadyVoted {
-					e.state.VotesCount[prevChoice]--
-				}
-				e.voters[client.UserID] = p.Choice
-				e.state.VotesCount[p.Choice]++
-
-				if e.state.DebaterA != nil {
-					e.state.DebaterA.Votes = e.state.VotesCount["side_a"]
-				}
-				if e.state.DebaterB != nil {
-					e.state.DebaterB.Votes = e.state.VotesCount["side_b"]
-				}
-				e.broadcastState()
-			}
+		if err := json.Unmarshal(env.Payload, &p); err == nil && client != nil {
+			e.castVoteLocked(client.UserID, client.Nickname, p.Choice)
 		}
 
 	case "debate:reaction":
@@ -309,46 +478,78 @@ func (e *DebateEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 			Emoji string `json:"emoji"`
 		}
 		if err := json.Unmarshal(env.Payload, &p); err == nil && p.Emoji != "" {
-			e.recordReaction(p.Emoji)
+			from := "Jurado"
+			if client != nil && client.Nickname != "" {
+				from = client.Nickname
+			}
+			e.recordReaction(p.Emoji, from)
 		}
 	}
 }
 
-func (e *DebateEngine) recordReaction(emoji string) {
+func (e *DebateEngine) recordReaction(emoji, from string) {
 	e.reactionMu.Lock()
 	e.reactionBuffer[emoji]++
 	count := e.reactionBuffer[emoji]
 	e.reactionMu.Unlock()
 
-	// Broadcast immediately to TV screens
 	payload := map[string]interface{}{
+		"emoji": emoji,
+		"from":  from,
 		"reactions": []map[string]interface{}{
 			{"emoji": emoji, "count": count},
 		},
 	}
 	if out, err := ws.NewEnvelope("tv:reaction_stream", e.roomID, payload); err == nil {
-		e.hub.BroadcastToClientType(e.roomID, "tv", out)
+		e.hub.BroadcastToRoom(e.roomID, out)
 	}
 }
 
-func (e *DebateEngine) startDebate(topic, category, debaterAID, debaterBID string, client *ws.Client) {
+func (e *DebateEngine) startDebateWithConfig(cfg DebateConfig, client *ws.Client) {
 	// Stop existing ticker if any
 	select {
 	case e.stopTicker <- struct{}{}:
 	default:
 	}
 
-	sideALabel := "Lado A (Coral)"
-	sideBLabel := "Lado B (Menta)"
+	if cfg.OpeningSeconds >= 10 && cfg.OpeningSeconds <= 180 {
+		e.openingSeconds = cfg.OpeningSeconds
+	} else {
+		e.openingSeconds = 45
+	}
+	if cfg.RebuttalSeconds >= 10 && cfg.RebuttalSeconds <= 180 {
+		e.rebuttalSeconds = cfg.RebuttalSeconds
+	} else {
+		e.rebuttalSeconds = 30
+	}
+	if cfg.VotingSeconds >= 10 && cfg.VotingSeconds <= 120 {
+		e.votingSeconds = cfg.VotingSeconds
+	} else {
+		e.votingSeconds = 20
+	}
+
+	topic := strings.TrimSpace(cfg.Topic)
+	category := strings.TrimSpace(cfg.Category)
+	sideALabel := "Defesa Coral (A)"
+	sideBLabel := "Defesa Menta (B)"
 
 	if topic == "" {
-		// Pick random topic matching category or from all curated topics
 		var pool []DebateTopic
-		if category != "" {
-			for _, t := range curatedTopics {
-				if t.Category == category {
-					pool = append(pool, t)
+		if e.customBank != nil {
+			for _, ct := range e.customBank.GetRoomTopics(e.roomID) {
+				if category == "" || strings.EqualFold(ct.Category, category) || strings.EqualFold(category, "Personalizado") {
+					pool = append(pool, DebateTopic{
+						Topic:      ct.Topic,
+						Category:   ct.Category,
+						SideALabel: ct.SideALabel,
+						SideBLabel: ct.SideBLabel,
+					})
 				}
+			}
+		}
+		for _, t := range curatedTopics {
+			if category == "" || strings.EqualFold(t.Category, category) {
+				pool = append(pool, t)
 			}
 		}
 		if len(pool) == 0 {
@@ -361,9 +562,32 @@ func (e *DebateEngine) startDebate(topic, category, debaterAID, debaterBID strin
 		category = selected.Category
 		sideALabel = selected.SideALabel
 		sideBLabel = selected.SideBLabel
+	} else {
+		// Check if topic matches a known curated or custom topic to inherit labels
+		for _, t := range curatedTopics {
+			if strings.EqualFold(t.Topic, topic) {
+				if category == "" {
+					category = t.Category
+				}
+				sideALabel = t.SideALabel
+				sideBLabel = t.SideBLabel
+				break
+			}
+		}
+		if e.customBank != nil {
+			for _, ct := range e.customBank.GetRoomTopics(e.roomID) {
+				if strings.EqualFold(ct.Topic, topic) {
+					if category == "" {
+						category = ct.Category
+					}
+					sideALabel = ct.SideALabel
+					sideBLabel = ct.SideBLabel
+					break
+				}
+			}
+		}
 	}
 
-	// Matchmaking: identify online candidates if debaters are not explicitly passed
 	onlineUsers := e.hub.GetOnlineUsers(e.roomID)
 	var candidates []ws.OnlineUser
 	for _, u := range onlineUsers {
@@ -372,16 +596,22 @@ func (e *DebateEngine) startDebate(topic, category, debaterAID, debaterBID strin
 		}
 	}
 
-	nameA := "Defesa Coral"
-	nameB := "Defesa Menta"
+	debaterAID := strings.TrimSpace(cfg.DebaterAID)
+	debaterBID := strings.TrimSpace(cfg.DebaterBID)
+	nameA := strings.TrimSpace(cfg.DebaterAName)
+	nameB := strings.TrimSpace(cfg.DebaterBName)
 	var jurorIDs []string
 
 	if debaterAID != "" {
 		for _, u := range candidates {
-			if u.ID == debaterAID {
+			if strings.EqualFold(u.ID, debaterAID) || strings.EqualFold(u.Nickname, debaterAID) {
+				debaterAID = u.ID
 				nameA = u.Nickname
 				break
 			}
+		}
+		if nameA == "" {
+			nameA = debaterAID
 		}
 	} else if len(candidates) > 0 {
 		debaterAID = candidates[0].ID
@@ -391,20 +621,34 @@ func (e *DebateEngine) startDebate(topic, category, debaterAID, debaterBID strin
 		nameA = client.Nickname
 	} else {
 		debaterAID = "debater-a"
+		nameA = "Defesa Coral"
 	}
 
 	if debaterBID != "" {
 		for _, u := range candidates {
-			if u.ID == debaterBID {
+			if strings.EqualFold(u.ID, debaterBID) || strings.EqualFold(u.Nickname, debaterBID) {
+				debaterBID = u.ID
 				nameB = u.Nickname
 				break
 			}
 		}
+		if nameB == "" {
+			nameB = debaterBID
+		}
 	} else if len(candidates) > 1 {
-		debaterBID = candidates[1].ID
-		nameB = candidates[1].Nickname
-	} else {
+		for _, u := range candidates {
+			if u.ID != debaterAID {
+				debaterBID = u.ID
+				nameB = u.Nickname
+				break
+			}
+		}
+	}
+	if debaterBID == "" {
 		debaterBID = "debater-b"
+		if nameB == "" {
+			nameB = "Defesa Menta"
+		}
 	}
 
 	for _, u := range candidates {
@@ -430,8 +674,10 @@ func (e *DebateEngine) startDebate(topic, category, debaterAID, debaterBID strin
 			Nickname: nameB,
 			Votes:    0,
 		},
-		JurorIDs:   jurorIDs,
-		VotesCount: map[string]int{"side_a": 0, "side_b": 0},
+		JurorIDs:       jurorIDs,
+		ReadyPlayers:   []string{},
+		CourtQuestions: []CourtQuestion{},
+		VotesCount:     map[string]int{"side_a": 0, "side_b": 0},
 	}
 
 	// Begin LOBBY phase (10s)
@@ -470,7 +716,6 @@ func (e *DebateEngine) runPhaseTicker(currentPhase DebatePhase, seconds int) {
 
 			e.remainingSeconds--
 
-			// Emit 1s tick
 			tickPayload := map[string]interface{}{
 				"remaining_seconds": e.remainingSeconds,
 				"phase_ends_at":     e.phaseEndsAt.UnixMilli(),
@@ -492,16 +737,15 @@ func (e *DebateEngine) runPhaseTicker(currentPhase DebatePhase, seconds int) {
 func (e *DebateEngine) onPhaseTimeout(phase DebatePhase) {
 	switch phase {
 	case PhaseLobby:
-		e.transitionTo(PhaseOpeningArguments, 45)
+		e.transitionTo(PhaseOpeningArguments, e.openingSeconds)
 
 	case PhaseOpeningArguments:
-		e.transitionTo(PhaseRebuttal, 30)
+		e.transitionTo(PhaseRebuttal, e.rebuttalSeconds)
 
 	case PhaseRebuttal:
-		e.transitionTo(PhaseVoting, 20)
+		e.transitionTo(PhaseVoting, e.votingSeconds)
 
 	case PhaseVoting:
-		// Tally votes & announce winner
 		sideAVotes := e.state.VotesCount["side_a"]
 		sideBVotes := e.state.VotesCount["side_b"]
 
@@ -513,10 +757,14 @@ func (e *DebateEngine) onPhaseTimeout(phase DebatePhase) {
 			e.state.WinnerSide = "tie"
 		}
 
+		if e.statsStore != nil {
+			stateCopy := *e.state
+			go e.statsStore.RecordDebateMatch(e.roomID, &stateCopy)
+		}
+
 		e.transitionTo(PhaseResults, 15)
 
 	case PhaseResults:
-		// Return room to CHAT mode
 		e.phase = PhaseChat
 		e.broadcastState()
 		log.Printf("[Room %s] Debate finished. Room returned to CHAT.", e.roomID)

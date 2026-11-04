@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,20 +47,40 @@ type QuizLeaderboardEntry struct {
 	Rank              int     `json:"rank,omitempty"`
 }
 
+type FastestResponderInfo struct {
+	UserID         string `json:"user_id"`
+	Nickname       string `json:"nickname"`
+	ResponseTimeMs int64  `json:"response_time_ms"`
+}
+
 type QuizState struct {
 	CurrentQuestionIndex int                     `json:"current_question_index"`
 	TotalQuestions       int                     `json:"total_questions"`
+	Category             string                  `json:"category,omitempty"`
+	Difficulty           string                  `json:"difficulty,omitempty"`
 	CurrentQuestion      *TriviaQuestion         `json:"current_question,omitempty"`
 	AnswersDistribution  map[string]int          `json:"answers_distribution"`
 	CorrectOption        string                  `json:"correct_option,omitempty"`
+	FastestResponder     *FastestResponderInfo   `json:"fastest_responder,omitempty"`
+	AnsweredCount        int                     `json:"answered_count"`
 	Leaderboard          []*QuizLeaderboardEntry `json:"leaderboard"`
 	IsPaused             bool                    `json:"is_paused,omitempty"`
+}
+
+type QuizConfig struct {
+	Category        string
+	Difficulty      string
+	RoundCount      int
+	QuestionSeconds int
+	IncludeCustom   bool
 }
 
 type TriviaEngine struct {
 	mu                sync.RWMutex
 	roomID            string
 	hub               *ws.Hub
+	statsStore        *StatsStore
+	customBank        *CustomBankStore
 	phase             QuizPhase
 	phaseEndsAt       time.Time
 	remainingSeconds  int
@@ -69,6 +90,7 @@ type TriviaEngine struct {
 	questionStartedAt time.Time
 	state             *QuizState
 	userScores        map[string]*QuizLeaderboardEntry // userID -> entry
+	roundTrackers     map[string]*QuizPlayerRoundStats // userID -> match stats
 	answeredUsers     map[string]bool                  // userID -> true for current question
 	stopTicker        chan struct{}
 }
@@ -78,144 +100,23 @@ func NewTriviaEngine(roomID string, hub *ws.Hub) *TriviaEngine {
 		roomID:        roomID,
 		hub:           hub,
 		phase:         QuizPhaseChat,
-		questions:     getQuestionBank(),
+		questions:     getExpandedQuestionBank(),
 		userScores:    make(map[string]*QuizLeaderboardEntry),
+		roundTrackers: make(map[string]*QuizPlayerRoundStats),
 		answeredUsers: make(map[string]bool),
 		stopTicker:    make(chan struct{}),
 	}
 }
 
+func (e *TriviaEngine) SetStores(stats *StatsStore, bank *CustomBankStore) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.statsStore = stats
+	e.customBank = bank
+}
+
 func getQuestionBank() []TriviaQuestion {
-	all := []TriviaQuestion{
-		// Tecnologia & Programação
-		{
-			ID: "t1", Category: "Tecnologia", Difficulty: "Média",
-			Prompt: "Qual linguagem foi criada no Google por Robert Griesemer, Rob Pike e Ken Thompson?",
-			Options: map[string]string{
-				"A": "Rust", "B": "Go (Golang)", "C": "Kotlin", "D": "TypeScript",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "t2", Category: "Tecnologia", Difficulty: "Fácil",
-			Prompt: "Qual porta TCP padrão é utilizada pelo protocolo HTTP não criptografado?",
-			Options: map[string]string{
-				"A": "21", "B": "443", "C": "80", "D": "8080",
-			},
-			CorrectOption: "C", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "t3", Category: "Tecnologia", Difficulty: "Média",
-			Prompt: "Quantos bits compõem um endereço IPv4 tradicional?",
-			Options: map[string]string{
-				"A": "16 bits", "B": "32 bits", "C": "64 bits", "D": "128 bits",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "t4", Category: "Tecnologia", Difficulty: "Difícil",
-			Prompt: "Qual estrutura de dados opera no princípio LIFO (Last In, First Out)?",
-			Options: map[string]string{
-				"A": "Fila (Queue)", "B": "Pilha (Stack)", "C": "Grafo", "D": "Árvore B",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "t5", Category: "Tecnologia", Difficulty: "Média",
-			Prompt: "Qual comando do Git desfaz o último commit mantendo as alterações nos arquivos?",
-			Options: map[string]string{
-				"A": "git reset --soft HEAD~1", "B": "git reset --hard", "C": "git revert -f", "D": "git clean -fd",
-			},
-			CorrectOption: "A", TotalTimeSeconds: 15,
-		},
-
-		// Games & Internet
-		{
-			ID: "g1", Category: "Games", Difficulty: "Fácil",
-			Prompt: "Em Minecraft, qual item é indispensável para criar um portal para o Nether?",
-			Options: map[string]string{
-				"A": "Bedrock", "B": "Obsidiana", "C": "Pedra Luminosa", "D": "Diamante",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "g2", Category: "Games", Difficulty: "Média",
-			Prompt: "Qual é o nome do protagonista silencioso da franquia The Legend of Zelda?",
-			Options: map[string]string{
-				"A": "Zelda", "B": "Link", "C": "Ganon", "D": "Navi",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "g3", Category: "Games", Difficulty: "Média",
-			Prompt: "Qual estúdio desenvolveu os jogos The Witcher 3 e Cyberpunk 2077?",
-			Options: map[string]string{
-				"A": "Bethesda", "B": "CD Projekt RED", "C": "BioWare", "D": "Ubisoft",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "g4", Category: "Games", Difficulty: "Fácil",
-			Prompt: "Qual impostor deve ser descoberto no jogo multijogador viral de 2020?",
-			Options: map[string]string{
-				"A": "Among Us", "B": "Fall Guys", "C": "Roblox", "D": "Phasmophobia",
-			},
-			CorrectOption: "A", TotalTimeSeconds: 15,
-		},
-
-		// Cultura Pop & Cinema
-		{
-			ID: "c1", Category: "Cultura Pop", Difficulty: "Fácil",
-			Prompt: "Qual é o nome da nave estelar pilotada por Han Solo e Chewbacca em Star Wars?",
-			Options: map[string]string{
-				"A": "Enterprise", "B": "Millennium Falcon", "C": "X-Wing", "D": "Death Star",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "c2", Category: "Cultura Pop", Difficulty: "Média",
-			Prompt: "Qual ator interpretou Oppenheimer no filme vencedor do Oscar dirigido por Christopher Nolan?",
-			Options: map[string]string{
-				"A": "Cillian Murphy", "B": "Christian Bale", "C": "Matt Damon", "D": "Robert Downey Jr.",
-			},
-			CorrectOption: "A", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "c3", Category: "Cultura Pop", Difficulty: "Fácil",
-			Prompt: "Quantos anéis de poder foram dados aos Senhores dos Anões na mitologia de Tolkien?",
-			Options: map[string]string{
-				"A": "3", "B": "7", "C": "9", "D": "1",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-
-		// Conhecimentos Gerais & Brasil
-		{
-			ID: "b1", Category: "Geral", Difficulty: "Fácil",
-			Prompt: "Qual foi a capital do Brasil antes da fundação de Brasília em 1960?",
-			Options: map[string]string{
-				"A": "Salvador", "B": "São Paulo", "C": "Rio de Janeiro", "D": "Recife",
-			},
-			CorrectOption: "C", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "b2", Category: "Geral", Difficulty: "Média",
-			Prompt: "Qual é o planeta mais quente do Sistema Solar?",
-			Options: map[string]string{
-				"A": "Mercúrio", "B": "Vênus", "C": "Marte", "D": "Júpiter",
-			},
-			CorrectOption: "B", TotalTimeSeconds: 15,
-		},
-		{
-			ID: "b3", Category: "Geral", Difficulty: "Difícil",
-			Prompt: "Qual elemento químico possui o símbolo 'W' na Tabela Periódica?",
-			Options: map[string]string{
-				"A": "Tungstênio", "B": "Vanádio", "C": "Criptônio", "D": "Bismuto",
-			},
-			CorrectOption: "A", TotalTimeSeconds: 15,
-		},
-	}
-	return all
+	return getExpandedQuestionBank()
 }
 
 func (e *TriviaEngine) IsActive() bool {
@@ -243,11 +144,24 @@ func (e *TriviaEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 	switch env.Event {
 	case "game:start":
 		var p struct {
-			Category   string `json:"category"`
-			RoundCount int    `json:"round_count"`
+			Category        string `json:"category"`
+			Difficulty      string `json:"difficulty"`
+			RoundCount      int    `json:"round_count"`
+			QuestionSeconds int    `json:"question_seconds"`
+			IncludeCustom   *bool  `json:"include_custom"`
 		}
 		_ = json.Unmarshal(env.Payload, &p)
-		e.startQuizWithConfig(p.Category, p.RoundCount)
+		incCustom := true
+		if p.IncludeCustom != nil {
+			incCustom = *p.IncludeCustom
+		}
+		e.startQuizWithOptions(QuizConfig{
+			Category:        p.Category,
+			Difficulty:      p.Difficulty,
+			RoundCount:      p.RoundCount,
+			QuestionSeconds: p.QuestionSeconds,
+			IncludeCustom:   incCustom,
+		})
 
 	case "game:pause":
 		e.isPaused = true
@@ -272,13 +186,12 @@ func (e *TriviaEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 		log.Printf("[Room %s] Quiz cancelled by host.", e.roomID)
 
 	case "quiz:submit_answer":
-		if e.phase != QuizPhaseQuestion {
+		if e.phase != QuizPhaseQuestion || client == nil {
 			return
 		}
 		if e.answeredUsers[client.UserID] {
 			return
 		}
-		e.answeredUsers[client.UserID] = true
 
 		var p struct {
 			Choice string `json:"choice"`
@@ -287,14 +200,16 @@ func (e *TriviaEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 			return
 		}
 
+		choice := strings.ToUpper(strings.TrimSpace(p.Choice))
 		currentQ := e.questions[e.currentQIdx]
-		if _, valid := currentQ.Options[p.Choice]; !valid {
+		if _, valid := currentQ.Options[choice]; !valid {
 			return
 		}
 
-		e.state.AnswersDistribution[p.Choice]++
+		e.answeredUsers[client.UserID] = true
+		e.state.AnswersDistribution[choice]++
+		e.state.AnsweredCount = len(e.answeredUsers)
 
-		// Millisecond precision speed and Kahoot formula calculation
 		elapsedMs := time.Since(e.questionStartedAt).Milliseconds()
 		totalMs := int64(currentQ.TotalTimeSeconds * 1000)
 		if elapsedMs < 0 {
@@ -302,7 +217,7 @@ func (e *TriviaEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 		}
 
 		roundPoints := 0
-		isCorrect := p.Choice == currentQ.CorrectOption
+		isCorrect := choice == currentQ.CorrectOption
 
 		entry, exists := e.userScores[client.UserID]
 		if !exists {
@@ -315,11 +230,37 @@ func (e *TriviaEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 			e.userScores[client.UserID] = entry
 		}
 
+		tracker, tExists := e.roundTrackers[client.UserID]
+		if !tExists {
+			tracker = &QuizPlayerRoundStats{
+				UserID:   client.UserID,
+				Nickname: client.Nickname,
+			}
+			e.roundTrackers[client.UserID] = tracker
+		}
+		tracker.TotalAnswers++
+
 		entry.ResponseTimeMs = elapsedMs
 		entry.LastAnswerCorrect = isCorrect
 
 		if isCorrect {
 			entry.Streak++
+			tracker.CorrectAnswers++
+			if entry.Streak > tracker.BestStreak {
+				tracker.BestStreak = entry.Streak
+			}
+			if elapsedMs > 0 && (tracker.FastestAnswerMs == 0 || elapsedMs < tracker.FastestAnswerMs) {
+				tracker.FastestAnswerMs = elapsedMs
+			}
+
+			if e.state.FastestResponder == nil || elapsedMs < e.state.FastestResponder.ResponseTimeMs {
+				e.state.FastestResponder = &FastestResponderInfo{
+					UserID:         client.UserID,
+					Nickname:       client.Nickname,
+					ResponseTimeMs: elapsedMs,
+				}
+			}
+
 			multiplier := 1.0
 			if entry.Streak == 2 {
 				multiplier = 1.25
@@ -330,7 +271,6 @@ func (e *TriviaEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 			}
 			entry.StreakMultiplier = multiplier
 
-			// Base score (1000 max) decayed by reaction latency
 			ratio := 1.0 - (float64(elapsedMs) / float64(totalMs))
 			if ratio < 0.2 {
 				ratio = 0.2
@@ -344,59 +284,128 @@ func (e *TriviaEngine) HandleAction(client *ws.Client, env *ws.Envelope) {
 
 		entry.RoundScore = roundPoints
 		entry.TotalScore += roundPoints
+		tracker.TotalScore = entry.TotalScore
 
 		e.updateLeaderboard()
 		e.broadcastState()
+
+		// Check if all active non-TV players in the room have answered so we can advance early
+		if e.hub != nil {
+			online := e.hub.GetOnlineUsers(e.roomID)
+			activePlayers := 0
+			for _, u := range online {
+				if u.ClientType != "tv" {
+					activePlayers++
+				}
+			}
+			if activePlayers >= 2 && len(e.answeredUsers) >= activePlayers {
+				e.onPhaseTimeout(QuizPhaseQuestion)
+			}
+		}
 	}
 }
 
 func (e *TriviaEngine) startQuizWithConfig(category string, rounds int) {
+	e.startQuizWithOptions(QuizConfig{
+		Category:      category,
+		RoundCount:    rounds,
+		IncludeCustom: true,
+	})
+}
+
+func (e *TriviaEngine) startQuizWithOptions(cfg QuizConfig) {
 	select {
 	case e.stopTicker <- struct{}{}:
 	default:
 	}
 
-	bank := getQuestionBank()
-	var selected []TriviaQuestion
+	qSeconds := cfg.QuestionSeconds
+	if qSeconds < 5 || qSeconds > 60 {
+		qSeconds = 15
+	}
 
-	if category != "" {
-		for _, q := range bank {
-			if q.Category == category {
-				selected = append(selected, q)
+	category := strings.TrimSpace(cfg.Category)
+	difficulty := strings.TrimSpace(cfg.Difficulty)
+	if strings.EqualFold(difficulty, "Todas") {
+		difficulty = ""
+	}
+
+	var pool []TriviaQuestion
+	if cfg.IncludeCustom && e.customBank != nil {
+		for _, cq := range e.customBank.GetRoomQuestions(e.roomID) {
+			catMatch := category == "" || strings.EqualFold(cq.Category, category) || strings.EqualFold(category, "Personalizado")
+			diffMatch := difficulty == "" || strings.EqualFold(cq.Difficulty, difficulty)
+			if catMatch && diffMatch {
+				pool = append(pool, TriviaQuestion{
+					ID:               cq.ID,
+					Category:         cq.Category,
+					Difficulty:       cq.Difficulty,
+					Prompt:           cq.Prompt,
+					Options:          cq.Options,
+					CorrectOption:    cq.CorrectOption,
+					TotalTimeSeconds: qSeconds,
+				})
 			}
 		}
 	}
-	if len(selected) == 0 {
-		selected = bank
+
+	for _, q := range getExpandedQuestionBank() {
+		catMatch := category == "" || strings.EqualFold(q.Category, category)
+		diffMatch := difficulty == "" || strings.EqualFold(q.Difficulty, difficulty)
+		if catMatch && diffMatch {
+			qCopy := q
+			qCopy.TotalTimeSeconds = qSeconds
+			pool = append(pool, qCopy)
+		}
 	}
 
-	// Shuffle questions
+	if len(pool) == 0 {
+		for _, q := range getExpandedQuestionBank() {
+			qCopy := q
+			qCopy.TotalTimeSeconds = qSeconds
+			pool = append(pool, qCopy)
+		}
+	}
+
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	r.Shuffle(len(selected), func(i, j int) {
-		selected[i], selected[j] = selected[j], selected[i]
+	r.Shuffle(len(pool), func(i, j int) {
+		pool[i], pool[j] = pool[j], pool[i]
 	})
 
-	if rounds <= 0 || rounds > len(selected) {
+	rounds := cfg.RoundCount
+	if rounds <= 0 || rounds > len(pool) {
 		rounds = 5
-		if len(selected) < 5 {
-			rounds = len(selected)
+		if len(pool) < 5 {
+			rounds = len(pool)
 		}
 	}
 
 	e.questions = make([]TriviaQuestion, rounds)
 	for i := 0; i < rounds; i++ {
-		q := selected[i]
+		q := pool[i]
 		q.Index = i
 		e.questions[i] = q
 	}
 
 	e.currentQIdx = 0
 	e.userScores = make(map[string]*QuizLeaderboardEntry)
+	e.roundTrackers = make(map[string]*QuizPlayerRoundStats)
 	e.answeredUsers = make(map[string]bool)
+
+	displayCat := category
+	if displayCat == "" {
+		displayCat = "Geral"
+	}
+	displayDiff := difficulty
+	if displayDiff == "" {
+		displayDiff = "Todas"
+	}
 
 	e.state = &QuizState{
 		CurrentQuestionIndex: 0,
 		TotalQuestions:       rounds,
+		Category:             displayCat,
+		Difficulty:           displayDiff,
 		AnswersDistribution:  map[string]int{"A": 0, "B": 0, "C": 0, "D": 0},
 		Leaderboard:          []*QuizLeaderboardEntry{},
 	}
@@ -418,6 +427,8 @@ func (e *TriviaEngine) transitionTo(nextPhase QuizPhase, durationSeconds int) {
 		e.state.CurrentQuestion = &currentQ
 		e.state.AnswersDistribution = map[string]int{"A": 0, "B": 0, "C": 0, "D": 0}
 		e.state.CorrectOption = ""
+		e.state.FastestResponder = nil
+		e.state.AnsweredCount = 0
 
 	case QuizPhaseReveal:
 		e.state.CorrectOption = e.questions[e.currentQIdx].CorrectOption
@@ -428,6 +439,15 @@ func (e *TriviaEngine) transitionTo(nextPhase QuizPhase, durationSeconds int) {
 
 	case QuizPhaseFinalResults:
 		e.updateLeaderboard()
+		if e.statsStore != nil && len(e.roundTrackers) > 0 {
+			players := make([]*QuizPlayerRoundStats, 0, len(e.roundTrackers))
+			for _, tr := range e.roundTrackers {
+				copyTr := *tr
+				players = append(players, &copyTr)
+			}
+			cat := e.state.Category
+			go e.statsStore.RecordQuizMatch(e.roomID, cat, players)
+		}
 	}
 
 	log.Printf("[Room %s] Quiz transitioning to %s (%ds)", e.roomID, nextPhase, durationSeconds)
