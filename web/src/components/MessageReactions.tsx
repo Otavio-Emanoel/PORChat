@@ -1,168 +1,156 @@
+'use client';
+
 import React from 'react';
-import { Reply, Copy, Trash2, ThumbsUp, Heart, Smile, Sparkles, Check } from 'lucide-react';
+import {
+  ThumbsUp,
+  Heart,
+  Smile,
+  Award,
+  Flame,
+  CheckCircle2,
+  Pencil,
+  Pin,
+  Trash2,
+} from 'lucide-react';
 
-export const REACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  like: ThumbsUp,
-  heart: Heart,
-  smile: Smile,
-  star: Sparkles,
-  check: Check,
-  '\uD83D\uDC4D': ThumbsUp,
-  '\u2764\uFE0F': Heart,
-  '\uD83D\uDE02': Smile,
-  '\uD83D\uDE2E': Sparkles,
-  '\uD83D\uDE22': Smile,
-  '\uD83D\uDE4F': Check,
-  '\uD83D\uDD25': Sparkles,
-  '\uD83D\uDC51': Sparkles,
+export const QUICK_REACTIONS = ['like', 'heart', 'laugh', 'applause', 'fire', 'agree'] as const;
+
+const REACTION_META: Record<
+  string,
+  {
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+  }
+> = {
+  like: { icon: ThumbsUp, label: 'Curtir' },
+  heart: { icon: Heart, label: 'Amei' },
+  laugh: { icon: Smile, label: 'Boa' },
+  applause: { icon: Award, label: 'Aplausos' },
+  fire: { icon: Flame, label: 'Destaque' },
+  agree: { icon: CheckCircle2, label: 'Concordo' },
 };
 
-export const REACTION_LABELS: Record<string, string> = {
-  like: 'Curtir',
-  heart: 'Amei',
-  smile: 'Riso',
-  star: 'Destaque',
-  check: 'Concordo',
-  '\uD83D\uDC4D': 'Curtir',
-  '\u2764\uFE0F': 'Amei',
-  '\uD83D\uDE02': 'Riso',
-  '\uD83D\uDE2E': 'Impressionado',
-  '\uD83D\uDE22': 'Triste',
-  '\uD83D\uDE4F': 'Agradecido',
-  '\uD83D\uDD25': 'Destaque',
-  '\uD83D\uDC51': 'Top',
-};
-
-const QUICK_REACTIONS = [
-  { key: 'like', label: 'Curtir', icon: ThumbsUp },
-  { key: 'heart', label: 'Amei', icon: Heart },
-  { key: 'smile', label: 'Riso', icon: Smile },
-  { key: 'star', label: 'Destaque', icon: Sparkles },
-] as const;
-
-interface MessageHoverBarProps {
+interface MessageReactionsProps {
   messageId: string;
-  onReact: (emoji: string) => void;
-  isCurrentUser: boolean;
-  onReply?: () => void;
-  onCopy?: () => void;
-  onDelete?: () => void;
-}
-
-export function MessageHoverBar({
-  messageId,
-  onReact,
-  isCurrentUser,
-  onReply,
-  onCopy,
-  onDelete,
-}: MessageHoverBarProps) {
-  return (
-    <div
-      className={`absolute -top-4 ${
-        isCurrentUser ? 'right-2' : 'left-2'
-      } z-20 flex items-center gap-0.5 px-2 py-1 rounded-full bg-white/95 backdrop-blur-md border border-gray-200/80 shadow-lg animate-in fade-in zoom-in-95 duration-150 transition-all select-none`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {QUICK_REACTIONS.map(({ key, label, icon: IconComponent }) => (
-        <button
-          key={key}
-          type="button"
-          onClick={() => onReact(key)}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-600 hover:text-brand-primary hover:bg-gray-100 hover:scale-110 transition-all active:scale-95 cursor-pointer"
-          title={label}
-        >
-          <IconComponent className="w-3.5 h-3.5" />
-        </button>
-      ))}
-
-      <div className="h-4 w-px bg-gray-200 mx-1" />
-
-      {onReply && (
-        <button
-          type="button"
-          onClick={onReply}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-500 hover:text-brand-primary hover:bg-gray-100 transition-all active:scale-95 cursor-pointer"
-          title="Responder mensagem"
-        >
-          <Reply className="w-3.5 h-3.5" />
-        </button>
-      )}
-
-      {onCopy && (
-        <button
-          type="button"
-          onClick={onCopy}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-500 hover:text-brand-primary hover:bg-gray-100 transition-all active:scale-95 cursor-pointer"
-          title="Copiar texto"
-        >
-          <Copy className="w-3.5 h-3.5" />
-        </button>
-      )}
-
-      {onDelete && isCurrentUser && (
-        <button
-          type="button"
-          onClick={onDelete}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all active:scale-95 cursor-pointer"
-          title="Apagar mensagem"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      )}
-    </div>
-  );
-}
-
-interface MessageReactionPillsProps {
   reactions?: Record<string, string[]>;
-  currentUserId?: string;
-  onToggleReaction: (emoji: string) => void;
-  isCurrentUser: boolean;
+  currentUserId: string;
+  isMe: boolean;
+  isPinned?: boolean;
+  canEdit?: boolean;
+  onReact: (messageId: string, emoji: string) => void;
+  onEdit?: () => void;
+  onPin?: () => void;
+  onDelete?: (messageId: string) => void;
 }
 
-export function MessageReactionPills({
-  reactions,
+export function MessageReactions({
+  messageId,
+  reactions = {},
   currentUserId,
-  onToggleReaction,
-  isCurrentUser,
-}: MessageReactionPillsProps) {
-  if (!reactions || Object.keys(reactions).length === 0) return null;
+  isMe,
+  isPinned = false,
+  canEdit = false,
+  onReact,
+  onEdit,
+  onPin,
+  onDelete,
+}: MessageReactionsProps) {
+  const activeEntries = Object.entries(reactions).filter(([, users]) => users && users.length > 0);
 
   return (
-    <div
-      className={`flex flex-wrap gap-1 mt-1.5 ${
-        isCurrentUser ? 'justify-end' : 'justify-start'
-      }`}
-    >
-      {Object.entries(reactions).map(([emoji, users]) => {
-        if (!users || users.length === 0) return null;
-        const hasReacted = currentUserId ? users.includes(currentUserId) : false;
-        const IconComponent = REACTION_ICONS[emoji];
+    <div className={`mt-1 flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+      {/* Hover Action Bar */}
+      <div
+        className={`flex items-center gap-0.5 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100 ${
+          isMe ? 'flex-row-reverse' : 'flex-row'
+        }`}
+      >
+        {QUICK_REACTIONS.map((key) => {
+          const meta = REACTION_META[key] || { icon: ThumbsUp, label: key };
+          const IconComponent = meta.icon;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onReact(messageId, key)}
+              title={meta.label}
+              aria-label={`Reagir com ${meta.label}`}
+              className="rounded-full p-1 text-slate-500 transition hover:bg-slate-100 hover:text-[#6C5CE7] active:scale-95"
+            >
+              <IconComponent className="h-3.5 w-3.5" />
+            </button>
+          );
+        })}
 
-        return (
+        {onPin && (
           <button
-            key={emoji}
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleReaction(emoji);
-            }}
-            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold transition-all tactile-btn ${
-              hasReacted
-                ? 'bg-brand-primary/15 text-brand-primary border border-brand-primary/30 shadow-2xs'
-                : 'bg-gray-100/90 hover:bg-gray-200/80 text-gray-700 border border-gray-200/60'
+            onClick={onPin}
+            title={isPinned ? 'Desafixar mensagem' : 'Fixar mensagem no topo'}
+            aria-label="Fixar mensagem"
+            className={`ml-0.5 border-l border-slate-100 pl-1.5 pr-1 text-[10px] font-semibold transition ${
+              isPinned ? 'text-[#FDCB6E]' : 'text-slate-400 hover:text-slate-700'
             }`}
           >
-            {IconComponent ? (
-              <IconComponent className="w-3 h-3" />
-            ) : (
-              <span>{REACTION_LABELS[emoji] || emoji}</span>
-            )}
-            <span className="font-mono text-[10px]">{users.length}</span>
+            <Pin className="h-3.5 w-3.5" />
           </button>
-        );
-      })}
+        )}
+
+        {canEdit && onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            title="Editar mensagem"
+            aria-label="Editar mensagem"
+            className="px-1 text-slate-400 transition hover:text-[#6C5CE7]"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
+
+        {isMe && onDelete && (
+          <button
+            type="button"
+            onClick={() => onDelete(messageId)}
+            title="Apagar mensagem"
+            aria-label="Apagar mensagem"
+            className="px-1 text-slate-400 transition hover:text-red-500"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Rendered Reaction Pills */}
+      {activeEntries.length > 0 && (
+        <div
+          className={`mt-1 flex flex-wrap gap-1 ${isMe ? 'justify-end' : 'justify-start'}`}
+          role="group"
+          aria-label="Reações da mensagem"
+        >
+          {activeEntries.map(([key, users]) => {
+            const hasReacted = users.includes(currentUserId);
+            const meta = REACTION_META[key] || { icon: ThumbsUp, label: key };
+            const IconComponent = meta.icon;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onReact(messageId, key)}
+                title={meta.label}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold transition ${
+                  hasReacted
+                    ? 'border-[#6C5CE7]/40 bg-[#6C5CE7]/15 text-[#6C5CE7]'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <IconComponent className="h-3 w-3" />
+                <span>{users.length}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

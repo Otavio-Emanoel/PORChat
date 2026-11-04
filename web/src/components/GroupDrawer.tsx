@@ -1,238 +1,366 @@
 'use client';
 
-import React from 'react';
-import { X, Users, Copy, Check, LogOut, Trash2, Bell, BellOff, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  Users,
+  Copy,
+  Check,
+  Shield,
+  UserPlus,
+  UserMinus,
+  RefreshCw,
+  LogOut,
+  Trophy,
+  Save,
+  Trash2,
+} from 'lucide-react';
+import type { Room } from '@/lib/types';
 
 interface GroupDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  roomName: string;
-  roomCode?: string;
-  isGroup: boolean;
-  members: string[];
+  room: Room | null;
+  currentNickname: string;
   onlineUsers: Array<{ id: string; nickname: string }>;
-  createdBy?: string;
-  createdAt?: string;
-  onLeave: () => void;
-  onDelete: () => void;
-  isMuted: boolean;
-  onToggleMute: () => void;
-  onOpenSecurityAudit?: () => void;
+  onAddMembers?: (members: string[]) => Promise<void>;
+  onRemoveMember?: (member: string) => Promise<void>;
+  onToggleAdmin?: (member: string) => Promise<void>;
+  onUpdateSettings?: (name: string, description: string) => Promise<void>;
+  onRegenerateCode?: () => Promise<void>;
+  onOpenLeaderboard?: () => void;
+  onLeaveRoom?: () => Promise<void>;
+  onDeleteRoom?: () => Promise<void>;
 }
 
 export function GroupDrawer({
   isOpen,
   onClose,
-  roomName,
-  roomCode,
-  isGroup,
-  members,
+  room,
+  currentNickname,
   onlineUsers,
-  createdBy,
-  createdAt,
-  onLeave,
-  onDelete,
-  isMuted,
-  onToggleMute,
-  onOpenSecurityAudit,
+  onAddMembers,
+  onRemoveMember,
+  onToggleAdmin,
+  onUpdateSettings,
+  onRegenerateCode,
+  onOpenLeaderboard,
+  onLeaveRoom,
+  onDeleteRoom,
 }: GroupDrawerProps) {
-  const [copied, setCopied] = React.useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [newMemberInput, setNewMemberInput] = useState('');
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (room) {
+      setEditName(room.name || '');
+      setEditDesc(room.description || '');
+    }
+  }, [room]);
+
+  if (!isOpen || !room) return null;
+
+  const members = room.members || [];
+  const admins = room.admins || (room.created_by ? [room.created_by] : []);
+  const isCurrentUserAdmin =
+    room.created_by?.toLowerCase() === currentNickname.toLowerCase() ||
+    admins.some((a) => a.toLowerCase() === currentNickname.toLowerCase());
 
   const handleCopyCode = () => {
-    if (!roomCode) return;
-    navigator.clipboard.writeText(roomCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard.writeText(room.code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  const getMonogram = (name: string) => {
-    const parts = name.trim().split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onUpdateSettings || !editName.trim()) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await onUpdateSettings(editName.trim(), editDesc.trim());
+      setFeedback('Dados da conversa atualizados.');
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Erro ao atualizar conversa.');
+    } finally {
+      setBusy(false);
     }
-    return name.slice(0, 2).toUpperCase();
+  };
+
+  const handleAddMemberSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onAddMembers || !newMemberInput.trim()) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const names = newMemberInput
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await onAddMembers(names);
+      setNewMemberInput('');
+      setFeedback('Participante adicionado ao grupo.');
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Erro ao adicionar participante.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden font-body animate-in fade-in duration-200">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
-        onClick={onClose}
-      />
-
-      <div className="absolute inset-y-0 right-0 max-w-sm w-full bg-white shadow-2xl flex flex-col justify-between border-l border-gray-200 animate-in slide-in-from-right duration-300">
-        <div>
-          {/* Header */}
-          <div className="p-4 bg-[#F0F2F5] border-b border-gray-200 flex items-center justify-between">
-            <h3 className="font-heading font-bold text-sm text-ink-main">
-              {isGroup ? 'Dados do Grupo' : 'Dados do Contato'}
-            </h3>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 rounded-full hover:bg-gray-200 text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Detalhes da Conversa"
+    >
+      <div className="flex h-full w-full max-w-md flex-col border-l border-slate-800 bg-[#141722] text-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <Users className="h-5 w-5 text-[#6C5CE7]" />
+            <h2 className="font-heading text-base font-bold">
+              {room.is_group ? 'Dados e Administração do Grupo' : 'Dados da Conversa Direta'}
+            </h2>
           </div>
+          <button
+            onClick={onClose}
+            className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+            aria-label="Fechar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
-          <div className="p-6 overflow-y-auto max-h-[calc(100vh-140px)] space-y-6">
-            {/* Group Banner / Avatar */}
-            <div className="flex flex-col items-center text-center">
-              <div className="w-24 h-24 rounded-3xl bg-brand-primary text-white font-heading font-extrabold text-3xl flex items-center justify-center shadow-md mb-3">
-                {isGroup ? <Users className="w-10 h-10" /> : getMonogram(roomName)}
-              </div>
-              <h2 className="font-heading text-xl font-bold text-ink-main leading-tight">
-                {roomName}
-              </h2>
-              <span className="text-xs text-gray-400 mt-1">
-                {isGroup ? `Grupo • ${members.length} participantes` : 'Conversa Privada'}
-              </span>
+        {/* Scrollable Content */}
+        <div className="flex-1 space-y-6 overflow-y-auto p-6">
+          {feedback && (
+            <div className="rounded-2xl border border-[#00CEC9]/40 bg-[#00CEC9]/10 px-4 py-2.5 text-xs font-medium text-[#00CEC9]">
+              {feedback}
+            </div>
+          )}
+
+          {/* Room Identity & Settings */}
+          <form onSubmit={handleSaveSettings} className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+            <div>
+              <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Nome {room.is_group ? 'do Grupo' : 'da Conversa'}
+              </label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                disabled={!room.is_group}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-sm font-bold text-white disabled:opacity-60"
+              />
             </div>
 
-            {/* PIN Code Card */}
-            {roomCode && (
-              <div className="p-4 rounded-2xl bg-[#F0F2F5] border border-gray-200 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
-                    Código de Convite
-                  </span>
-                  <span className="font-mono font-bold text-sm text-ink-main tracking-widest">
-                    {roomCode}
-                  </span>
-                </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Descrição / Regras da Sala
+              </label>
+              <textarea
+                rows={2}
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                placeholder="Adicione uma descrição para os participantes..."
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs text-white"
+              />
+            </div>
+
+            {onUpdateSettings && (
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="flex items-center gap-1.5 rounded-xl bg-[#6C5CE7] px-4 py-2 text-xs font-bold text-white transition hover:brightness-105 disabled:opacity-50"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  Salvar Dados
+                </button>
+              </div>
+            )}
+          </form>
+
+          {/* Invite PIN Code & Ranking Button */}
+          <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Código de Convite / PIN da TV
+                </span>
+                <span className="font-mono text-lg font-extrabold text-[#FDCB6E]">{room.code}</span>
+              </div>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleCopyCode}
-                  className="px-3 py-1.5 rounded-xl bg-white hover:bg-gray-100 border border-gray-200 text-xs font-bold text-ink-main flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-bold text-white hover:bg-slate-700"
                 >
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copied ? 'Copiado!' : 'Copiar'}</span>
+                  {copiedCode ? <Check className="h-3.5 w-3.5 text-[#00CEC9]" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copiedCode ? 'Copiado' : 'Copiar'}
                 </button>
+                {room.is_group && isCurrentUserAdmin && onRegenerateCode && (
+                  <button
+                    type="button"
+                    onClick={onRegenerateCode}
+                    title="Gerar novo código de convite"
+                    className="rounded-xl border border-slate-700 bg-slate-800 p-2 text-slate-300 hover:bg-slate-700 hover:text-white"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                )}
               </div>
-            )}
-
-            {/* Mute Notifications Toggle */}
-            <div className="flex items-center justify-between p-3 rounded-2xl hover:bg-gray-50 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600">
-                  {isMuted ? <BellOff className="w-4 h-4 text-amber-600" /> : <Bell className="w-4 h-4" />}
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-ink-main block">Silenciar Notificações</span>
-                  <span className="text-[10px] text-gray-400 block">
-                    {isMuted ? 'Notificações silenciadas' : 'Receber alertas sonoros'}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={onToggleMute}
-                className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
-                  isMuted ? 'bg-brand-primary' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`w-5 h-5 rounded-full bg-white shadow-xs absolute top-0.5 transition-transform ${
-                    isMuted ? 'right-0.5' : 'left-0.5'
-                  }`}
-                />
-              </button>
             </div>
 
-            {/* Members Section */}
-            {isGroup && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    Participantes ({members.length})
-                  </span>
-                  <span className="text-[10px] text-emerald-600 font-bold">
-                    {onlineUsers.length} online
-                  </span>
-                </div>
+            {onOpenLeaderboard && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenLeaderboard();
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#FDCB6E]/40 bg-[#FDCB6E]/15 py-2.5 text-xs font-extrabold text-[#FDCB6E] transition hover:bg-[#FDCB6E]/25"
+              >
+                <Trophy className="h-4 w-4" />
+                Abrir Ranking & Histórico de Partidas
+              </button>
+            )}
+          </div>
 
-                <div className="divide-y divide-gray-100 border border-gray-100 rounded-2xl overflow-hidden bg-gray-50/50">
-                  {members.map((member) => {
-                    const isOnline = onlineUsers.some((u) => u.nickname === member);
-                    const isCreator = createdBy && createdBy.toLowerCase() === member.toLowerCase();
-                    return (
-                      <div
-                        key={member}
-                        className="p-3 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div className="relative">
-                            <div className="w-8 h-8 rounded-full bg-brand-primary/10 text-brand-primary font-bold text-xs flex items-center justify-center">
-                              {member[0].toUpperCase()}
-                            </div>
-                            {isOnline && (
-                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white absolute -bottom-0.5 -right-0.5" />
-                            )}
-                          </div>
-                          <div>
-                            <span className="text-xs font-bold text-ink-main block">{member}</span>
-                            <span className="text-[10px] text-gray-400 block">
-                              {isOnline ? 'Online agora' : 'Ausente'}
-                            </span>
-                          </div>
-                        </div>
+          {/* Add Member to Group */}
+          {room.is_group && onAddMembers && (
+            <form
+              onSubmit={handleAddMemberSubmit}
+              className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-4"
+            >
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Adicionar Participante ao Grupo
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newMemberInput}
+                  onChange={(e) => setNewMemberInput(e.target.value)}
+                  placeholder="Nome de usuário (ex: Pedro, Marina)"
+                  className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs text-white"
+                />
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="flex items-center gap-1.5 rounded-xl bg-[#00CEC9] px-3.5 py-2 text-xs font-extrabold text-slate-950 hover:brightness-105"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Adicionar
+                </button>
+              </div>
+            </form>
+          )}
 
-                        {isCreator && (
-                          <span className="px-2 py-0.5 rounded bg-brand-primary/10 text-brand-primary text-[9px] font-bold uppercase">
-                            Admin
+          {/* Member List with Online Status & Admin Controls */}
+          <div>
+            <h3 className="mb-2.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+              Participantes ({members.length})
+            </h3>
+            <div className="space-y-2">
+              {members.map((member) => {
+                const isOnline = onlineUsers.some(
+                  (u) => u.nickname.toLowerCase() === member.toLowerCase() || u.id.toLowerCase() === member.toLowerCase()
+                );
+                const isAdmin =
+                  room.created_by?.toLowerCase() === member.toLowerCase() ||
+                  admins.some((a) => a.toLowerCase() === member.toLowerCase());
+                const isSelf = member.toLowerCase() === currentNickname.toLowerCase();
+
+                return (
+                  <div
+                    key={member}
+                    className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-[#6C5CE7]/25 font-heading text-xs font-bold text-white">
+                        {member.slice(0, 2).toUpperCase()}
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#141722] ${
+                            isOnline ? 'bg-[#00CEC9]' : 'bg-slate-600'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-white">
+                            {member} {isSelf && '(Você)'}
                           </span>
+                          {isAdmin && (
+                            <span className="flex items-center gap-0.5 rounded-md bg-[#6C5CE7]/20 px-1.5 py-0.5 text-[10px] font-bold text-[#6C5CE7]">
+                              <Shield className="h-2.5 w-2.5" />
+                              Admin
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400">
+                          {isOnline ? 'Online agora' : 'Offline'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {room.is_group && isCurrentUserAdmin && !isSelf && (
+                      <div className="flex items-center gap-1">
+                        {onToggleAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => onToggleAdmin(member)}
+                            title={isAdmin ? 'Remover admin' : 'Tornar admin'}
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-[#6C5CE7]"
+                          >
+                            <Shield className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {onRemoveMember && (
+                          <button
+                            type="button"
+                            onClick={() => onRemoveMember(member)}
+                            title="Remover do grupo"
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-[#FF7675]"
+                          >
+                            <UserMinus className="h-3.5 w-3.5" />
+                          </button>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Privacy notice & Audit Button */}
-            <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/60 space-y-2.5">
-              <div className="flex items-start gap-2.5 text-xs text-emerald-800">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span className="text-[11px] leading-tight font-medium">
-                  Conversas e mídias protegidas por criptografia, verificação estrita de origem e controle anti-adulteração.
-                </span>
-              </div>
-              {onOpenSecurityAudit && (
-                <button
-                  type="button"
-                  onClick={onOpenSecurityAudit}
-                  className="w-full py-2 px-3 rounded-xl bg-white hover:bg-emerald-50/50 text-emerald-800 font-bold text-xs border border-emerald-200 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Segurança, Auditoria & Exportar</span>
-                </button>
-              )}
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 bg-[#F0F2F5] border-t border-gray-200 space-y-2">
-          <button
-            type="button"
-            onClick={onLeave}
-            className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-gray-100 text-gray-700 text-xs font-bold border border-gray-200 flex items-center justify-center gap-2 transition-all cursor-pointer"
-          >
-            <LogOut className="w-4 h-4 text-gray-500" />
-            <span>Sair do Grupo</span>
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="w-full py-2.5 px-4 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold border border-red-200/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
-          >
-            <Trash2 className="w-4 h-4 text-red-500" />
-            <span>Excluir Grupo Permanentemente</span>
-          </button>
+        {/* Footer Leave / Delete */}
+        <div className="space-y-2 border-t border-slate-800 bg-[#10121B] p-4">
+          {onLeaveRoom && (
+            <button
+              type="button"
+              onClick={onLeaveRoom}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-700 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-slate-800 hover:text-white"
+            >
+              <LogOut className="h-4 w-4" />
+              Sair desta Conversa
+            </button>
+          )}
+          {isCurrentUserAdmin && onDeleteRoom && (
+            <button
+              type="button"
+              onClick={onDeleteRoom}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#FF7675]/30 bg-[#FF7675]/10 py-2.5 text-xs font-bold text-[#FF7675] transition hover:bg-[#FF7675]/20"
+            >
+              <Trash2 className="h-4 w-4" />
+              Excluir Sala Permanentemente
+            </button>
+          )}
         </div>
       </div>
     </div>
