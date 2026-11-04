@@ -171,14 +171,6 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 			if trimmed == "" {
 				return
 			}
-			if trimmed == "/bots" {
-				if h.engineGetter != nil {
-					if eng := h.engineGetter(c.RoomID); eng != nil {
-						eng.HandleAction(c, &Envelope{Event: "bots:toggle", RoomID: c.RoomID})
-					}
-				}
-				return
-			}
 
 			// Validate and sanitize chat message content, stripping XSS vectors & zero-width bypasses
 			sanitizedContent, err := security.ValidateChatMessage(trimmed, 1, 2000)
@@ -267,7 +259,7 @@ func (h *Hub) handleInbound(msg *InboundMessage) {
 
 	case "game:start", "game:pause", "game:resume", "game:skip_phase", "game:abort",
 		"debate:submit_argument", "debate:cast_vote", "debate:reaction",
-		"quiz:submit_answer", "bots:toggle", "game:bots_spawn":
+		"quiz:submit_answer":
 		if h.engineGetter != nil {
 			if eng := h.engineGetter(c.RoomID); eng != nil {
 				eng.HandleAction(c, env)
