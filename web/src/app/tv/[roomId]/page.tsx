@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useWebSocket } from '@/lib/useWebSocket';
+import { fetchRoomLeaderboard } from '@/lib/apiClient';
+import type { RoomLeaderboardEntry } from '@/lib/types';
 import { soundEffects } from '@/lib/soundEffects';
 import { launchConfetti } from '@/lib/confetti';
 import { QRCodeDisplay } from '@/components/QRCodeDisplay';
@@ -20,17 +22,17 @@ import {
   VolumeX,
   Maximize2,
   Minimize2,
-  Smartphone,
   Award,
   Clock,
   Tv,
+  MessageSquarePlus,
 } from 'lucide-react';
 
 interface Particle {
   id: number;
-  emoji: string;
+  label: string;
+  from?: string;
   left: number;
-  size: number;
 }
 
 const QUIZ_OPTION_COLORS: Record<'A' | 'B' | 'C' | 'D', { bg: string; border: string; text: string }> = {
@@ -49,6 +51,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [originUrl, setOriginUrl] = useState('');
   const [currentTime, setCurrentTime] = useState('');
+  const [roomRankings, setRoomRankings] = useState<RoomLeaderboardEntry[]>([]);
 
   // Update live stage clock
   useEffect(() => {
@@ -64,7 +67,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevPhaseRef = useRef<string>('');
 
-  const { onlineUsers, gameState, sendAction } = useWebSocket({
+  const { onlineUsers, gameState, lastReactionEvent } = useWebSocket({
     roomId,
     nickname: 'TV_Stage_Display',
     clientType: 'tv',
@@ -75,6 +78,14 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
   const quizState = gameState?.quiz_state;
   const phase = gameState?.phase || 'CHAT';
   const remaining = gameState?.remaining_seconds ?? 0;
+
+  // Fetch persistent room leaderboard for TV Stage Idle / Results
+  useEffect(() => {
+    if (!roomId) return;
+    fetchRoomLeaderboard(roomId)
+      .then((board) => setRoomRankings(board || []))
+      .catch(() => {});
+  }, [roomId, phase]);
 
   // Set Origin on Client
   useEffect(() => {
@@ -90,7 +101,6 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
   const sideAPercent = totalVotes > 0 ? Math.round((sideAVotes / totalVotes) * 100) : 50;
   const sideBPercent = totalVotes > 0 ? 100 - sideAPercent : 50;
 
-  // Copy Stage Invitation Link
   const handleCopyLink = () => {
     const link = originUrl || (typeof window !== 'undefined' ? `${window.location.origin}/room/${roomId}` : '');
     if (link && navigator.clipboard) {
@@ -100,7 +110,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
     }
   };
 
-  // TV Volume & Mute control (Item 24)
+  // TV Volume & Mute control
   const handleVolumeChange = (newVol: number) => {
     setVolume(newVol);
     soundEffects.setVolume(newVol / 100);
@@ -129,21 +139,6 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
     }
   };
 
-  // Reaction burst particle animation (Item 25)
-  const triggerReactionBurst = (count: number = 18) => {
-    const symbols = ['+', '★', '●', '▲', '◆'];
-    const newParticles: Particle[] = [];
-    for (let i = 0; i < count; i++) {
-      newParticles.push({
-        id: Date.now() + Math.random(),
-        emoji: symbols[Math.floor(Math.random() * symbols.length)],
-        left: Math.floor(Math.random() * 88) + 6,
-        size: Math.floor(Math.random() * 26) + 34,
-      });
-    }
-    setParticles((prev) => [...prev, ...newParticles]);
-  };
-
   // Audio & Confetti Triggers on Phase Transitions
   useEffect(() => {
     if (prevPhaseRef.current !== phase) {
@@ -152,60 +147,64 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
       } else if (phase === 'RESULTS' || phase === 'FINAL_RESULTS') {
         soundEffects.playFanfare();
         launchConfetti(canvasRef.current, 5000);
-        triggerReactionBurst(24);
       }
       prevPhaseRef.current = phase;
     }
   }, [phase]);
 
-  // Countdown Audio Ticking (Item 14)
+  // Countdown Audio Ticking
   useEffect(() => {
     if (remaining <= 5 && remaining > 0 && (phase === 'QUESTION' || phase === 'VOTING' || phase === 'REBUTTAL')) {
       soundEffects.playTick();
     }
   }, [remaining, phase]);
 
-  // Listen to incoming emoji reactions and spawn floating particles
+  // Listen to REAL incoming WebSocket reaction stream (`tv:reaction_stream`)
   useEffect(() => {
-    const handleReaction = (emoji: string) => {
-      const id = Date.now() + Math.random();
-      const left = Math.floor(Math.random() * 85) + 5;
-      const size = Math.floor(Math.random() * 24) + 36;
-      setParticles((prev) => [...prev.slice(-25), { id, emoji, left, size }]);
-      setTimeout(() => {
-        setParticles((prev) => prev.filter((p) => p.id !== id));
-      }, 3500);
-    };
+    if (!lastReactionEvent) return;
+    const id = Date.now() + Math.random();
+    const left = Math.floor(Math.random() * 76) + 12;
+    const label = lastReactionEvent.emoji || 'REACAO';
+    const from = lastReactionEvent.from;
 
-    if (phase === 'RESULTS' || phase === 'FINAL_RESULTS') {
-      const interval = setInterval(() => {
-        handleReaction('Voto Registrado');
-      }, 800);
-      return () => clearInterval(interval);
-    }
-  }, [phase]);
+    setParticles((prev) => [...prev.slice(-20), { id, label, from, left }]);
+    const timer = setTimeout(() => {
+      setParticles((prev) => prev.filter((p) => p.id !== id));
+    }, 3400);
+    return () => clearTimeout(timer);
+  }, [lastReactionEvent]);
+
+  const isDebaterAReady =
+    debateState?.debater_a &&
+    ( Boolean(debateState.ready_players?.[debateState.debater_a.id]) ||
+      Boolean(debateState.ready_players?.[debateState.debater_a.nickname]) );
+
+  const isDebaterBReady =
+    debateState?.debater_b &&
+    ( Boolean(debateState.ready_players?.[debateState.debater_b.id]) ||
+      Boolean(debateState.ready_players?.[debateState.debater_b.nickname]) );
 
   return (
     <div className="min-h-screen bg-surface-tv text-white flex flex-col justify-between p-4 sm:p-8 md:p-10 font-heading overflow-hidden relative select-none">
-      {/* Canvas Confetti Layer (Item 17) */}
+      {/* Canvas Confetti Layer */}
       <canvas
         ref={canvasRef}
         className="fixed inset-0 pointer-events-none z-50 w-full h-full"
       />
 
-      {/* Floating Reaction Particles */}
+      {/* Real-Time Floating Reaction Pills from Audience WebSockets */}
       <div className="absolute inset-0 pointer-events-none z-40 overflow-hidden">
         {particles.map((p) => (
           <div
             key={p.id}
-            className="absolute bottom-6 animate-float-up transition-transform ease-out"
+            className="absolute bottom-8 px-4 py-2 rounded-2xl bg-brand-reward text-ink-main font-black text-xs uppercase tracking-wider shadow-xl border-2 border-white/40"
             style={{
               left: `${p.left}%`,
-              fontSize: `${p.size}px`,
               animation: 'floatUp 3.2s cubic-bezier(0.1, 0.8, 0.3, 1) forwards',
             }}
           >
-            {p.emoji}
+            <span>{p.label}</span>
+            {p.from && <span className="ml-1.5 text-[10px] opacity-75">• {p.from}</span>}
           </div>
         ))}
       </div>
@@ -236,7 +235,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             </div>
           )}
 
-          {/* TV Volume Slider Control (Item 24) */}
+          {/* TV Volume Slider Control */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/10 border border-white/10">
             <button
               onClick={handleToggleMute}
@@ -263,7 +262,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             </span>
           </div>
 
-          {/* Fullscreen API Toggle (Item 18) */}
+          {/* Fullscreen API Toggle */}
           <button
             onClick={handleToggleFullscreen}
             className="p-2.5 rounded-2xl bg-white/10 hover:bg-white/15 text-white transition-all tactile-btn"
@@ -285,7 +284,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             <span>{copiedLink ? 'Link Copiado!' : 'Compartilhar'}</span>
           </button>
 
-          {/* Connected Jurors / Audience Spectator Counter (Item 25) */}
+          {/* Connected Spectators Counter */}
           <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-white/10 border border-white/15 text-xs sm:text-sm text-white shadow-inner">
             <Users size={16} className="text-brand-mint animate-pulse" />
             <span className="font-bold">{onlineUsers.length}</span>
@@ -305,39 +304,88 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
       <main className="flex-1 flex flex-col items-center justify-center my-4 sm:my-6 z-10 w-full max-w-6xl mx-auto">
         {phase === 'CHAT' ? (
           /* ==================================================================== */
-          /* ======================== TV LOBBY & QR CODE ======================== */
+          /* ============== TV LOBBY, QR CODE & ROOM HALL OF FAME =============== */
           /* ==================================================================== */
-          <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 gap-8 items-center bg-white/5 border border-white/10 rounded-3xl p-8 md:p-12 backdrop-blur-md shadow-2xl">
-            {/* Left: Instructions */}
-            <div className="text-left space-y-4">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-brand-reward/20 text-brand-reward text-xs font-bold uppercase tracking-wider">
-                <Tv size={14} />
-                <span>Palco Aberto • Aguardando Início</span>
-              </div>
-              <h2 className="text-3xl md:text-5xl font-black leading-tight text-white">
-                Entre no Jogo pelo Celular!
-              </h2>
-              <p className="text-white/60 text-sm md:text-base font-body leading-relaxed">
-                Aponte a câmera para o QR Code ou digite o código da sala no seu celular para participar como debatedor, responder ao quiz e votar no júri em tempo real!
-              </p>
-              <div className="pt-2 flex flex-wrap gap-3">
-                <button
-                  onClick={handleCopyLink}
-                  className="px-4 py-2.5 rounded-2xl bg-brand-primary text-white text-xs font-bold flex items-center gap-2 tactile-btn hover:brightness-110 shadow-lg shadow-brand-primary/30"
-                >
-                  {copiedLink ? <Check size={16} /> : <Copy size={16} />}
-                  <span>{copiedLink ? 'Link do Telão Copiado!' : 'Copiar Link de Entrada'}</span>
-                </button>
-              </div>
-            </div>
+          <div className="w-full space-y-6">
+            <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+              {/* Left 2 Columns: Instructions & QR Code */}
+              <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8 items-center bg-white/5 border border-white/10 rounded-3xl p-8 md:p-10 backdrop-blur-md shadow-2xl">
+                <div className="text-left space-y-4">
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-brand-reward/20 text-brand-reward text-xs font-bold uppercase tracking-wider">
+                    <Tv size={14} />
+                    <span>Palco Aberto • Aguardando Início</span>
+                  </div>
+                  <h2 className="text-3xl md:text-4xl font-black leading-tight text-white">
+                    Entre no Jogo pelo Celular!
+                  </h2>
+                  <p className="text-white/60 text-sm font-body leading-relaxed">
+                    Aponte a câmera para o QR Code ou abra a conversa do grupo no seu celular para participar como debatedor, responder ao quiz e votar no júri em tempo real!
+                  </p>
+                  <div className="pt-2 flex flex-wrap gap-3">
+                    <button
+                      onClick={handleCopyLink}
+                      className="px-4 py-2.5 rounded-2xl bg-brand-primary text-white text-xs font-bold flex items-center gap-2 tactile-btn hover:brightness-110 shadow-lg shadow-brand-primary/30"
+                    >
+                      {copiedLink ? <Check size={16} /> : <Copy size={16} />}
+                      <span>{copiedLink ? 'Link do Telão Copiado!' : 'Copiar Link de Entrada'}</span>
+                    </button>
+                  </div>
+                </div>
 
-            {/* Right: Dynamic QR Code Display (Item 13) */}
-            <div className="flex justify-center">
-              <QRCodeDisplay
-                roomCode={roomId.slice(0, 8).toUpperCase()}
-                url={originUrl || `http://localhost:3001/room/${roomId}`}
-                size={180}
-              />
+                <div className="flex justify-center">
+                  <QRCodeDisplay
+                    roomCode={roomId.slice(0, 8).toUpperCase()}
+                    url={originUrl || `http://localhost:3001/room/${roomId}`}
+                    size={175}
+                  />
+                </div>
+              </div>
+
+              {/* Right Column: Persistent Room Hall of Fame */}
+              <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-md shadow-2xl flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-brand-reward font-bold text-sm uppercase tracking-wider mb-4">
+                    <Trophy size={16} />
+                    <span>Hall da Fama da Sala</span>
+                  </div>
+                  {roomRankings.length === 0 ? (
+                    <div className="py-10 text-center text-white/40 font-body text-xs">
+                      Nenhuma partida finalizada ainda nesta sala. Inicie um Debate ou Quiz no chat!
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {roomRankings.slice(0, 5).map((entry, idx) => (
+                        <div
+                          key={entry.user_id}
+                          className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-black/25 border border-white/10"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="w-6 h-6 rounded-lg bg-brand-reward/20 text-brand-reward font-mono text-xs font-bold flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <span className="text-sm font-bold text-white block truncate">
+                                {entry.nickname}
+                              </span>
+                              <span className="text-[10px] text-white/50 font-body block">
+                                {entry.debate_wins}D • {entry.quiz_wins}Q • {entry.matches_played} jogos
+                              </span>
+                            </div>
+                          </div>
+                          <span className="font-mono text-sm font-black text-brand-reward shrink-0">
+                            {entry.total_points} pts
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-[11px] text-white/50 font-body">
+                  <span>Pontuação cumulativa persistente</span>
+                  <span>Top {Math.min(5, roomRankings.length)}</span>
+                </div>
+              </div>
             </div>
           </div>
         ) : isQuiz ? (
@@ -346,13 +394,13 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
           /* ==================================================================== */
           <div className="w-full flex flex-col items-center">
             {/* Clock & Phase Banner */}
-            <div className="flex flex-col items-center mb-6">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-reward/20 border border-brand-reward/30 text-brand-reward text-xs sm:text-sm font-bold uppercase tracking-wider mb-4">
+            <div className="flex flex-col items-center mb-5">
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-reward/20 border border-brand-reward/30 text-brand-reward text-xs sm:text-sm font-bold uppercase tracking-wider mb-3">
                 <Zap size={16} />
                 <span>QUIZ RELÂMPAGO • {phase.replace('_', ' ')}</span>
               </div>
-              {/* Circular Countdown Timer Ring (Item 64) */}
-              <div className="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center">
+              {/* Circular Countdown Timer Ring */}
+              <div className="relative w-24 h-24 sm:w-32 sm:h-32 flex items-center justify-center">
                 <svg className="w-full h-full -rotate-90 drop-shadow-[0_0_20px_rgba(253,203,110,0.4)]" viewBox="0 0 100 100">
                   <circle
                     cx="50"
@@ -377,16 +425,17 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                   />
                 </svg>
                 <div className="absolute flex flex-col items-center justify-center">
-                  <span className={`text-3xl sm:text-4xl font-black font-mono tracking-tighter ${
-                    remaining <= 3 ? 'text-brand-action animate-ping' : 'text-brand-reward'
-                  }`}>
+                  <span
+                    className={`text-2xl sm:text-3xl font-black font-mono tracking-tighter ${
+                      remaining <= 3 ? 'text-brand-action animate-ping' : 'text-brand-reward'
+                    }`}
+                  >
                     {remaining}s
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Quiz Views based on Phase */}
             {phase === 'LOBBY' && (
               <div className="w-full max-w-3xl bg-white/5 border border-white/10 rounded-3xl p-8 md:p-10 backdrop-blur-md shadow-2xl text-center">
                 <h2 className="text-2xl sm:text-4xl md:text-5xl font-black mb-3 text-brand-reward">
@@ -399,19 +448,44 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             )}
 
             {(phase === 'QUESTION' || phase === 'REVEAL') && (
-              <div className="w-full space-y-6">
+              <div className="w-full space-y-5">
                 {/* Question Prompt Card */}
                 <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 sm:p-8 backdrop-blur-md shadow-2xl text-center">
-                  <span className="text-xs font-mono uppercase text-brand-reward tracking-widest block mb-2">
-                    Pergunta {(quizState?.current_question_index ?? 0) + 1} de {quizState?.total_questions ?? 5}
-                  </span>
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <span className="text-xs font-mono uppercase text-brand-reward tracking-widest">
+                      Pergunta {(quizState?.current_question_index ?? 0) + 1} de {quizState?.total_questions ?? 5}
+                    </span>
+                    {quizState?.current_question?.category && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-white/80 text-[10px] font-bold uppercase">
+                        {quizState.current_question.category}
+                      </span>
+                    )}
+                    {quizState?.current_question?.difficulty && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-brand-primary/30 text-brand-reward text-[10px] font-bold uppercase">
+                        {quizState.current_question.difficulty}
+                      </span>
+                    )}
+                  </div>
                   <h2 className="text-xl sm:text-3xl md:text-4xl font-black leading-snug">
                     "{quizState?.current_question?.prompt || 'Carregando pergunta...'}"
                   </h2>
                 </div>
 
+                {/* Fastest Responder Highlight on Reveal */}
+                {phase === 'REVEAL' && quizState?.fastest_responder && (
+                  <div className="flex items-center justify-center">
+                    <div className="inline-flex items-center gap-2.5 px-5 py-2 rounded-2xl bg-brand-mint/20 border border-brand-mint/40 text-brand-mint text-sm font-bold">
+                      <Zap size={16} />
+                      <span>
+                        Gatilho Mais Rápido: <strong>{quizState.fastest_responder.nickname}</strong> em{' '}
+                        {quizState.fastest_responder.response_ms}ms
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* 4 Colored Options Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 w-full">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 w-full">
                   {(['A', 'B', 'C', 'D'] as const).map((opt) => {
                     const optionText = quizState?.current_question?.options?.[opt] || '';
                     const isCorrect = phase === 'REVEAL' && quizState?.correct_option === opt;
@@ -495,7 +569,6 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             )}
 
             {phase === 'FINAL_RESULTS' && (
-              /* 3-Tier Olympic Winner Podium (Item 17) */
               <div className="w-full max-w-4xl bg-gradient-to-b from-brand-reward/25 to-brand-reward/5 border-2 border-brand-reward/50 rounded-3xl p-6 sm:p-10 backdrop-blur-lg shadow-2xl text-center">
                 <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-brand-reward/20 mx-auto flex items-center justify-center mb-3">
                   <Crown size={48} className="text-brand-reward animate-bounce" />
@@ -507,9 +580,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                   Parabéns aos maiores conhecedores da rodada!
                 </p>
 
-                {/* Podium Grid */}
                 <div className="flex items-end justify-center gap-3 sm:gap-6 pt-6 pb-2">
-                  {/* 2nd Place */}
                   {quizState?.leaderboard?.[1] && (
                     <div className="flex flex-col items-center">
                       <span className="text-sm sm:text-base font-bold text-white mb-1">
@@ -525,7 +596,6 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                     </div>
                   )}
 
-                  {/* 1st Place */}
                   {quizState?.leaderboard?.[0] && (
                     <div className="flex flex-col items-center">
                       <span className="text-base sm:text-xl font-black text-brand-reward mb-1">
@@ -541,7 +611,6 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                     </div>
                   )}
 
-                  {/* 3rd Place */}
                   {quizState?.leaderboard?.[2] && (
                     <div className="flex flex-col items-center">
                       <span className="text-sm sm:text-base font-bold text-white mb-1">
@@ -566,13 +635,13 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
           /* ==================================================================== */
           <div className="w-full flex flex-col items-center">
             {/* Clock & Phase Banner */}
-            <div className="flex flex-col items-center mb-6">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/15 text-brand-reward text-xs sm:text-sm font-bold uppercase tracking-wider mb-4">
+            <div className="flex flex-col items-center mb-5">
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/15 text-brand-reward text-xs sm:text-sm font-bold uppercase tracking-wider mb-3">
                 <Swords size={16} />
                 <span>MODO DEBATE • {phase.replace('_', ' ')}</span>
               </div>
-              {/* Circular Countdown Timer Ring (Item 64) */}
-              <div className="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center">
+              {/* Circular Countdown Timer Ring */}
+              <div className="relative w-24 h-24 sm:w-32 sm:h-32 flex items-center justify-center">
                 <svg className="w-full h-full -rotate-90 drop-shadow-[0_0_20px_rgba(253,203,110,0.4)]" viewBox="0 0 100 100">
                   <circle
                     cx="50"
@@ -590,16 +659,18 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                     stroke={remaining > 10 ? '#00CEC9' : remaining > 5 ? '#FDCB6E' : '#FF7675'}
                     strokeWidth="7"
                     strokeDasharray={264}
-                    strokeDashoffset={264 - (264 * Math.max(0, Math.min(30, remaining))) / 30}
+                    strokeDashoffset={264 - (264 * Math.max(0, Math.min(45, remaining))) / 45}
                     strokeLinecap="round"
                     className="transition-all duration-1000 ease-linear"
                     fill="transparent"
                   />
                 </svg>
                 <div className="absolute flex flex-col items-center justify-center">
-                  <span className={`text-3xl sm:text-4xl font-black font-mono tracking-tighter ${
-                    remaining <= 5 ? 'text-brand-action animate-ping' : 'text-brand-reward'
-                  }`}>
+                  <span
+                    className={`text-2xl sm:text-3xl font-black font-mono tracking-tighter ${
+                      remaining <= 5 ? 'text-brand-action animate-ping' : 'text-brand-reward'
+                    }`}
+                  >
                     {remaining}s
                   </span>
                 </div>
@@ -607,16 +678,15 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
             </div>
 
             {/* Topic Card */}
-            <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 mb-6 backdrop-blur-md shadow-2xl text-center">
+            <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-5 mb-5 backdrop-blur-md shadow-2xl text-center">
               <span className="text-xs font-mono uppercase text-brand-reward tracking-widest block mb-1">
-                TEMA DA DISPUTA
+                TEMA DA DISPUTA ({debateState?.category || 'GERAL'})
               </span>
               <h2 className="text-xl sm:text-3xl md:text-4xl font-black leading-snug">
                 "{debateState?.topic || 'Abacaxi na pizza é crime ou alta gastronomia?'}"
               </h2>
             </div>
 
-            {/* Debaters Cards or Results Celebration */}
             {phase === 'RESULTS' ? (
               <div className="w-full max-w-3xl bg-gradient-to-b from-brand-reward/20 to-brand-reward/5 border-2 border-brand-reward/50 rounded-3xl p-8 sm:p-10 backdrop-blur-lg shadow-2xl text-center">
                 <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-brand-reward/20 mx-auto flex items-center justify-center mb-4">
@@ -643,9 +713,9 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                 </div>
               </div>
             ) : (
-              <div className="w-full space-y-6">
-                {/* Tug-of-War Crowd Meter (Item 15) */}
-                <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-5 shadow-xl">
+              <div className="w-full space-y-5">
+                {/* Tug-of-War Crowd Meter */}
+                <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-4 shadow-xl">
                   <div className="flex justify-between font-mono font-bold text-xs sm:text-sm px-2 mb-2">
                     <span className="text-brand-action flex items-center gap-1.5">
                       <span>{debateState?.side_a_label || 'Lado Coral'}</span>
@@ -658,7 +728,6 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                     </span>
                   </div>
 
-                  {/* Tug-of-War Bar with Dynamic Rope Knot */}
                   <div className="relative w-full h-7 rounded-full overflow-hidden flex bg-white/10 p-1 border border-white/10 shadow-inner">
                     <div
                       className="bg-brand-action h-full transition-all duration-500 rounded-l-full flex items-center justify-start pl-3 text-[10px] font-black text-white"
@@ -666,8 +735,8 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                     >
                       {sideAPercent > 15 && `${sideAVotes} votos`}
                     </div>
-                    {/* Rope Knot Indicator */}
-                    <div className="absolute top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white shadow-md border-2 border-brand-reward flex items-center justify-center text-[10px] font-black text-ink-main pointer-events-none transition-all duration-500"
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white shadow-md border-2 border-brand-reward flex items-center justify-center text-[10px] font-black text-ink-main pointer-events-none transition-all duration-500"
                       style={{ left: `calc(${sideAPercent}% - 12px)` }}
                     >
                       VS
@@ -681,68 +750,155 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                   </div>
                 </div>
 
-                {/* Live Argument Teleprompter Cards (Item 16) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 w-full">
+                {/* Dual Argument Teleprompter Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
                   {/* Side A Card (Coral) */}
                   <div
-                    className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between text-left shadow-2xl relative overflow-hidden transition-all duration-300 ${
+                    className={`rounded-3xl p-6 flex flex-col justify-between text-left shadow-2xl relative overflow-hidden transition-all duration-300 ${
                       phase === 'OPENING_ARGUMENTS'
-                        ? 'bg-brand-action/25 border-4 border-brand-action shadow-brand-action/30 scale-102 ring-4 ring-brand-action/20'
+                        ? 'bg-brand-action/25 border-4 border-brand-action shadow-brand-action/30'
                         : 'bg-brand-action/10 border-2 border-brand-action/30'
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="px-3.5 py-1.5 rounded-xl bg-brand-action text-white text-xs font-black uppercase tracking-wider shadow-sm">
-                          LADO A (CORAL)
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="px-3.5 py-1 rounded-xl bg-brand-action text-white text-xs font-black uppercase tracking-wider">
+                          {debateState?.side_a_label || 'LADO A (CORAL)'}
                         </span>
-                        <span className="font-mono text-xl sm:text-2xl font-black text-brand-action">
-                          {sideAVotes} {sideAVotes === 1 ? 'Voto' : 'Votos'}
-                        </span>
+                        {phase === 'LOBBY' ? (
+                          <span
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${
+                              isDebaterAReady
+                                ? 'bg-brand-mint text-ink-main'
+                                : 'bg-white/10 text-white/60'
+                            }`}
+                          >
+                            {isDebaterAReady ? 'PRONTO' : 'AGUARDANDO'}
+                          </span>
+                        ) : (
+                          <span className="font-mono text-xl font-black text-brand-action">
+                            {sideAVotes} {sideAVotes === 1 ? 'Voto' : 'Votos'}
+                          </span>
+                        )}
                       </div>
-                      <h3 className="text-2xl sm:text-3xl font-black text-white mb-4">
+                      <h3 className="text-2xl font-black text-white mb-3">
                         {debateState?.debater_a?.nickname || 'Defensor A'}
                       </h3>
                     </div>
-                    <div className="bg-black/40 rounded-2xl p-5 font-body text-base text-white/90 min-h-[130px] flex items-center border border-white/5">
-                      <p className="leading-relaxed italic">
-                        {debateState?.debater_a?.argument
-                          ? `"${debateState.debater_a.argument}"`
-                          : 'Aguardando o debatedor redigir seu argumento no celular...'}
-                      </p>
+
+                    <div className="space-y-2.5">
+                      <div className="bg-black/40 rounded-2xl p-4 font-body text-sm text-white/90 border border-white/5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-action block mb-1">
+                          Argumento de Abertura
+                        </span>
+                        <p className="leading-relaxed italic">
+                          {debateState?.debater_a?.opening_argument || debateState?.debater_a?.argument
+                            ? `"${debateState.debater_a.opening_argument || debateState.debater_a.argument}"`
+                            : 'Aguardando o debatedor enviar o argumento inicial pelo celular...'}
+                        </p>
+                      </div>
+
+                      {(phase === 'REBUTTAL' ||
+                        phase === 'VOTING' ||
+                        debateState?.debater_a?.rebuttal_argument) && (
+                        <div className="bg-black/50 rounded-2xl p-4 font-body text-sm text-white/90 border border-brand-action/30">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-brand-reward block mb-1">
+                            Réplica / Contra-Argumento
+                          </span>
+                          <p className="leading-relaxed italic">
+                            {debateState?.debater_a?.rebuttal_argument
+                              ? `"${debateState.debater_a.rebuttal_argument}"`
+                              : 'Redigindo tréplica...'}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {/* Side B Card (Mint) */}
                   <div
-                    className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between text-left shadow-2xl relative overflow-hidden transition-all duration-300 ${
+                    className={`rounded-3xl p-6 flex flex-col justify-between text-left shadow-2xl relative overflow-hidden transition-all duration-300 ${
                       phase === 'REBUTTAL'
-                        ? 'bg-brand-mint/25 border-4 border-brand-mint shadow-brand-mint/30 scale-102 ring-4 ring-brand-mint/20'
+                        ? 'bg-brand-mint/25 border-4 border-brand-mint shadow-brand-mint/30'
                         : 'bg-brand-mint/10 border-2 border-brand-mint/30'
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="px-3.5 py-1.5 rounded-xl bg-brand-mint text-ink-main text-xs font-black uppercase tracking-wider shadow-sm">
-                          LADO B (MENTA)
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="px-3.5 py-1 rounded-xl bg-brand-mint text-ink-main text-xs font-black uppercase tracking-wider">
+                          {debateState?.side_b_label || 'LADO B (MENTA)'}
                         </span>
-                        <span className="font-mono text-xl sm:text-2xl font-black text-brand-mint">
-                          {sideBVotes} {sideBVotes === 1 ? 'Voto' : 'Votos'}
-                        </span>
+                        {phase === 'LOBBY' ? (
+                          <span
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${
+                              isDebaterBReady
+                                ? 'bg-brand-mint text-ink-main'
+                                : 'bg-white/10 text-white/60'
+                            }`}
+                          >
+                            {isDebaterBReady ? 'PRONTO' : 'AGUARDANDO'}
+                          </span>
+                        ) : (
+                          <span className="font-mono text-xl font-black text-brand-mint">
+                            {sideBVotes} {sideBVotes === 1 ? 'Voto' : 'Votos'}
+                          </span>
+                        )}
                       </div>
-                      <h3 className="text-2xl sm:text-3xl font-black text-white mb-4">
+                      <h3 className="text-2xl font-black text-white mb-3">
                         {debateState?.debater_b?.nickname || 'Defensor B'}
                       </h3>
                     </div>
-                    <div className="bg-black/40 rounded-2xl p-5 font-body text-base text-white/90 min-h-[130px] flex items-center border border-white/5">
-                      <p className="leading-relaxed italic">
-                        {debateState?.debater_b?.argument
-                          ? `"${debateState.debater_b.argument}"`
-                          : 'Aguardando a tréplica do debatedor no celular...'}
-                      </p>
+
+                    <div className="space-y-2.5">
+                      <div className="bg-black/40 rounded-2xl p-4 font-body text-sm text-white/90 border border-white/5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-mint block mb-1">
+                          Argumento de Abertura
+                        </span>
+                        <p className="leading-relaxed italic">
+                          {debateState?.debater_b?.opening_argument || debateState?.debater_b?.argument
+                            ? `"${debateState.debater_b.opening_argument || debateState.debater_b.argument}"`
+                            : 'Aguardando o debatedor enviar o argumento inicial pelo celular...'}
+                        </p>
+                      </div>
+
+                      {(phase === 'REBUTTAL' ||
+                        phase === 'VOTING' ||
+                        debateState?.debater_b?.rebuttal_argument) && (
+                        <div className="bg-black/50 rounded-2xl p-4 font-body text-sm text-white/90 border border-brand-mint/30">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-brand-reward block mb-1">
+                            Réplica / Contra-Argumento
+                          </span>
+                          <p className="leading-relaxed italic">
+                            {debateState?.debater_b?.rebuttal_argument
+                              ? `"${debateState.debater_b.rebuttal_argument}"`
+                              : 'Redigindo tréplica...'}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
+
+                {/* Live Courtroom Questions from Jurors */}
+                {debateState?.court_questions && debateState.court_questions.length > 0 && (
+                  <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-4 backdrop-blur-md">
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand-reward mb-2.5">
+                      <MessageSquarePlus size={14} />
+                      <span>Perguntas da Bancada de Jurados</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {debateState.court_questions.slice(-3).map((q) => (
+                        <div
+                          key={q.id}
+                          className="rounded-2xl bg-black/35 border border-white/10 px-4 py-2.5 font-body text-xs"
+                        >
+                          <span className="font-bold text-brand-mint">{q.nickname}: </span>
+                          <span className="text-white/90">"{q.question}"</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -754,7 +910,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
         <p>PORChat Stage Engine v2.0 • Sincronizado para Projetores & TVs 4K</p>
         <p className="flex items-center gap-1.5 font-semibold text-brand-reward">
           <Flame size={16} className="text-brand-action" />
-          <span>Plateia Interativa: Use o celular para votar e reagir!</span>
+          <span>Plateia Interativa: Use o celular para votar, perguntar e reagir!</span>
         </p>
       </footer>
     </div>
