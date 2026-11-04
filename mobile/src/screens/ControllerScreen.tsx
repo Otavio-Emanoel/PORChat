@@ -21,7 +21,7 @@ const QUIZ_BUTTON_COLORS = {
   D: { bg: '#1DD1A1', border: '#10AC84' }, // Emerald
 };
 
-const PARTY_REACTIONS = ['Top', 'Boa!', 'Discordo', 'Sensacional', 'Ponto'];
+const PARTY_REACTIONS = ['Top', 'Concordo', 'Discordo', 'Genial', 'Polemico'];
 
 const QUICK_ARGUMENTS = [
   'Minha tese irrefutável é que...',
@@ -36,13 +36,15 @@ const triggerHaptic = (type: 'tap' | 'success' | 'buzzer' = 'tap') => {
   if (!globalHapticsEnabled) return;
   if (Platform.OS === 'web') {
     try {
-      const nav = typeof globalThis !== 'undefined' ? (globalThis as any).navigator : null;
-      if (nav && 'vibrate' in nav) {
+      const nav = typeof globalThis !== 'undefined' ? (globalThis as Record<string, unknown>).navigator as { vibrate?: (pattern: number | number[]) => void } | undefined : undefined;
+      if (nav && typeof nav.vibrate === 'function') {
         if (type === 'tap') nav.vibrate(30);
         else if (type === 'success') nav.vibrate([0, 40, 50, 60]);
         else nav.vibrate([0, 100, 50, 100]);
       }
-    } catch (e) {}
+    } catch {
+      // Ignore vibration errors on unsupported browsers
+    }
     return;
   }
   if (type === 'tap') Vibration.vibrate(40);
@@ -52,7 +54,7 @@ const triggerHaptic = (type: 'tap' | 'success' | 'buzzer' = 'tap') => {
 
 const TactileCard: React.FC<{
   onPress: () => void;
-  style?: any;
+  style?: unknown;
   disabled?: boolean;
   children: React.ReactNode;
 }> = ({ onPress, style, disabled, children }) => {
@@ -84,7 +86,7 @@ const TactileCard: React.FC<{
       onPressOut={handlePressOut}
       disabled={disabled}
     >
-      <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, style]}>
+      <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, style as object]}>
         {children}
       </Animated.View>
     </TouchableOpacity>
@@ -92,18 +94,28 @@ const TactileCard: React.FC<{
 };
 
 export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { gameState, castVote, sendReaction, submitArgument, submitQuizAnswer, nickname } = useWebSocketContext();
+  const {
+    gameState,
+    castVote,
+    sendReaction,
+    submitArgument,
+    playerReady,
+    askCourtQuestion,
+    submitQuizAnswer,
+    nickname,
+  } = useWebSocketContext();
+
   const [argumentText, setArgumentText] = useState('');
   const [argumentSent, setArgumentSent] = useState(false);
+  const [courtQuestionText, setCourtQuestionText] = useState('');
+  const [courtQuestionSent, setCourtQuestionSent] = useState(false);
   const [votedSide, setVotedSide] = useState<'side_a' | 'side_b' | null>(null);
   const [votedQuizChoice, setVotedQuizChoice] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
 
-  // Haptic feedback toggle (Item 33) & Speed progress indicator (Item 34)
   const [hapticsOn, setHapticsOn] = useState(true);
   const [answerTimeMs, setAnswerTimeMs] = useState<number | null>(null);
   const questionStartRef = useRef<number>(Date.now());
 
-  // Reaction Combo Multiplier (Item 21)
   const [comboCount, setComboCount] = useState(0);
   const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -113,7 +125,6 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
   const debate = gameState?.debate_state;
   const quiz = gameState?.quiz_state;
 
-  // Reset answer when new question arrives
   useEffect(() => {
     if (phase === 'QUESTION') {
       setVotedQuizChoice(null);
@@ -132,9 +143,18 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
   const handleSubmitArg = () => {
     if (!argumentText.trim()) return;
     triggerHaptic('success');
-    submitArgument(argumentText.trim());
+    submitArgument(argumentText.trim(), phase === 'REBUTTAL' ? 'rebuttal' : 'opening');
     setArgumentSent(true);
     setTimeout(() => setArgumentSent(false), 3000);
+  };
+
+  const handleSubmitCourtQuestion = () => {
+    if (!courtQuestionText.trim()) return;
+    triggerHaptic('success');
+    askCourtQuestion(courtQuestionText.trim());
+    setCourtQuestionText('');
+    setCourtQuestionSent(true);
+    setTimeout(() => setCourtQuestionSent(false), 2500);
   };
 
   const handleQuizAnswer = (choice: 'A' | 'B' | 'C' | 'D') => {
@@ -157,20 +177,29 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
     }, 1400);
   };
 
-  const isDebater =
-    debate?.debater_a?.nickname === nickname ||
-    debate?.debater_b?.nickname === nickname ||
-    debate?.debater_a?.id === nickname ||
-    debate?.debater_b?.id === nickname;
+  const isDebaterA =
+    debate?.debater_a?.nickname.toLowerCase() === nickname.toLowerCase() ||
+    debate?.debater_a?.id.toLowerCase() === nickname.toLowerCase();
+  const isDebaterB =
+    debate?.debater_b?.nickname.toLowerCase() === nickname.toLowerCase() ||
+    debate?.debater_b?.id.toLowerCase() === nickname.toLowerCase();
+  const isDebater = isDebaterA || isDebaterB;
 
-  const myQuizScore = quiz?.leaderboard?.find((entry) => entry.nickname === nickname);
+  const isReady = Boolean(debate?.ready_players?.[nickname]);
+  const opponentOpening = isDebaterA
+    ? debate?.debater_b?.opening_argument || debate?.debater_b?.argument
+    : debate?.debater_a?.opening_argument || debate?.debater_a?.argument;
+
+  const myQuizScore = quiz?.leaderboard?.find(
+    (entry) => entry.nickname.toLowerCase() === nickname.toLowerCase()
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Top Controller Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
-          <Text style={styles.backButtonText}>← Voltar ao Chat</Text>
+          <Text style={styles.backButtonText}>{'< Voltar ao Chat'}</Text>
         </TouchableOpacity>
         <View style={styles.topBarRight}>
           <TouchableOpacity
@@ -202,18 +231,20 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
           </Text>
         </View>
 
-        {/* Debate Role Banner (Item 35) */}
+        {/* Debate Role Banner */}
         {!isQuiz && (
           <View style={[styles.roleBanner, isDebater ? styles.roleBannerDebater : styles.roleBannerJuror]}>
-            <Text style={styles.roleBannerIcon}>{isDebater ? 'DEFESA' : 'JÚRI'}</Text>
+            <Text style={styles.roleBannerIcon}>{isDebater ? 'DEFESA' : 'JURI'}</Text>
             <View style={styles.roleBannerTextCol}>
               <Text style={styles.roleBannerTitle}>
-                {isDebater ? 'VOCÊ É DEBATEDOR' : 'VOCÊ É JURADO DA PLATÉIA'}
+                {isDebater
+                  ? `VOCÊ É DEBATEDOR (${isDebaterA ? debate?.side_a_label || 'LADO A' : debate?.side_b_label || 'LADO B'})`
+                  : 'VOCÊ É JURADO DA BANCADA'}
               </Text>
               <Text style={styles.roleBannerDesc}>
                 {isDebater
-                  ? 'Defenda sua tese! Digite ou envie argumentos rápidos antes do fim do tempo.'
-                  : 'Acompanhe as defesas no telão e vote no lado mais convincente quando a votação abrir!'}
+                  ? 'Defenda sua tese! Envie seu argumento inicial e sua réplica antes do fim do tempo.'
+                  : 'Envie perguntas aos debatedores, reaja em tempo real e vote no lado vencedor!'}
               </Text>
             </View>
           </View>
@@ -253,13 +284,13 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                         <Text style={styles.quizOptionText} numberOfLines={2}>
                           {optionText}
                         </Text>
-                        {isSelected && <Text style={styles.quizChoiceCheck}>✓ ENVIADO</Text>}
+                        {isSelected && <Text style={styles.quizChoiceCheck}>[ENVIADO]</Text>}
                       </TactileCard>
                     );
                   })}
                 </View>
 
-                {/* Speed Progress Indicator (Item 34) */}
+                {/* Speed Progress Indicator */}
                 {votedQuizChoice !== null && (
                   <View style={styles.speedIndicatorCard}>
                     <Text style={styles.speedIndicatorTitle}>
@@ -293,6 +324,11 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                 <Text style={styles.sectionSubtitle}>
                   A alternativa correta é a letra {quiz?.correct_option}.
                 </Text>
+                {quiz?.fastest_responder && (
+                  <Text style={[styles.sectionSubtitle, { color: colors.brand.mint, fontWeight: 'bold' }]}>
+                    Mais rápido na rodada: {quiz.fastest_responder.nickname} ({quiz.fastest_responder.response_ms}ms)
+                  </Text>
+                )}
                 {myQuizScore && (
                   <View style={styles.scoreRow}>
                     <Text style={styles.scoreText}>Pontos ganhos: +{myQuizScore.round_score} pts</Text>
@@ -323,23 +359,50 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Tribunal em Preparação</Text>
                 <Text style={styles.sectionSubtitle}>
-                  Prepare-se! Em instantes os debatedores apresentarão suas teses de acusação e defesa.
+                  Prepare-se! Quando os dois debatedores confirmarem presença, a fase de Abertura começará imediatamente.
                 </Text>
                 <View style={styles.matchupRow}>
                   <View style={[styles.playerBadge, { borderColor: colors.brand.action }]}>
-                    <Text style={[styles.playerBadgeLabel, { color: colors.brand.action }]}>LADO A</Text>
-                    <Text style={styles.playerBadgeName}>{debate?.debater_a?.nickname || 'Defesa A'}</Text>
+                    <Text style={[styles.playerBadgeLabel, { color: colors.brand.action }]}>
+                      {debate?.side_a_label || 'LADO A'}
+                    </Text>
+                    <Text style={styles.playerBadgeName}>
+                      {debate?.debater_a?.nickname || 'Defesa A'}
+                    </Text>
                   </View>
                   <Text style={styles.vsText}>VS</Text>
                   <View style={[styles.playerBadge, { borderColor: colors.brand.mint }]}>
-                    <Text style={[styles.playerBadgeLabel, { color: colors.brand.mint }]}>LADO B</Text>
-                    <Text style={styles.playerBadgeName}>{debate?.debater_b?.nickname || 'Defesa B'}</Text>
+                    <Text style={[styles.playerBadgeLabel, { color: colors.brand.mint }]}>
+                      {debate?.side_b_label || 'LADO B'}
+                    </Text>
+                    <Text style={styles.playerBadgeName}>
+                      {debate?.debater_b?.nickname || 'Defesa B'}
+                    </Text>
                   </View>
                 </View>
+
+                {isDebater && (
+                  <TouchableOpacity
+                    style={[
+                      styles.submitArgButton,
+                      { marginTop: 18 },
+                      isReady && styles.submitArgButtonSuccess,
+                    ]}
+                    disabled={isReady}
+                    onPress={() => {
+                      triggerHaptic('success');
+                      playerReady();
+                    }}
+                  >
+                    <Text style={styles.submitArgButtonText}>
+                      {isReady ? '[OK] Você está pronto para o debate!' : 'Confirmar Estou Pronto'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
-            {/* Dedicated Debater Argument Workspace (Item 20) */}
+            {/* Dedicated Debater Argument Workspace OR Juror Courtroom Question Box */}
             {(phase === 'OPENING_ARGUMENTS' || phase === 'REBUTTAL') && (
               <View style={styles.card}>
                 <View style={styles.roleHeader}>
@@ -348,60 +411,119 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                   </Text>
                 </View>
 
-                <Text style={styles.sectionTitle}>
-                  {phase === 'OPENING_ARGUMENTS' ? 'Argumentos Iniciais' : 'Fase de Réplica'}
-                </Text>
-                <Text style={styles.sectionSubtitle}>
-                  {isDebater
-                    ? 'Digite sua tese com clareza. Ela aparecerá com destaque no telão da sala:'
-                    : 'Acompanhe os debatedores pelo telão e prepare seu voto para a próxima fase!'}
-                </Text>
+                {isDebater ? (
+                  <>
+                    <Text style={styles.sectionTitle}>
+                      {phase === 'OPENING_ARGUMENTS'
+                        ? 'Argumento Inicial de Defesa'
+                        : 'Fase de Réplica (Contra-Argumento)'}
+                    </Text>
+                    <Text style={styles.sectionSubtitle}>
+                      {phase === 'OPENING_ARGUMENTS'
+                        ? 'Apresente sua tese inicial com clareza para o telão:'
+                        : 'Rebata diretamente o argumento apresentado pelo seu oponente:'}
+                    </Text>
 
-                {/* Inspiration Template Pills */}
-                {isDebater && (
-                  <View style={styles.templatePillsRow}>
-                    {QUICK_ARGUMENTS.map((arg, idx) => (
-                      <TouchableOpacity
-                        key={idx}
-                        style={styles.templatePill}
-                        onPress={() => setArgumentText((prev) => (prev ? `${prev} ${arg}` : arg))}
-                      >
-                        <Text style={styles.templatePillText}>{arg}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                    {phase === 'REBUTTAL' && opponentOpening ? (
+                      <View style={styles.opponentBox}>
+                        <Text style={styles.opponentBoxLabel}>TESE DO OPONENTE:</Text>
+                        <Text style={styles.opponentBoxText}>"{opponentOpening}"</Text>
+                      </View>
+                    ) : null}
+
+                    {/* Inspiration Template Pills */}
+                    <View style={styles.templatePillsRow}>
+                      {QUICK_ARGUMENTS.map((arg, idx) => (
+                        <TouchableOpacity
+                          key={idx}
+                          style={styles.templatePill}
+                          onPress={() => setArgumentText((prev) => (prev ? `${prev} ${arg}` : arg))}
+                        >
+                          <Text style={styles.templatePillText}>{arg}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <TextInput
+                      style={styles.textArea}
+                      value={argumentText}
+                      onChangeText={setArgumentText}
+                      placeholder={
+                        phase === 'OPENING_ARGUMENTS'
+                          ? 'Escreva seu argumento de abertura...'
+                          : 'Escreva sua réplica contra o oponente...'
+                      }
+                      placeholderTextColor={colors.ink.muted}
+                      multiline
+                      maxLength={280}
+                      numberOfLines={4}
+                    />
+
+                    <View style={styles.charCountRow}>
+                      <Text style={[styles.charCountText, argumentText.length > 250 && styles.charCountWarning]}>
+                        {argumentText.length} / 280 caracteres
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.submitArgButton, argumentSent && styles.submitArgButtonSuccess]}
+                      onPress={handleSubmitArg}
+                    >
+                      <Text style={styles.submitArgButtonText}>
+                        {argumentSent
+                          ? '[OK] Argumento Transmitido ao Telão!'
+                          : phase === 'REBUTTAL'
+                          ? 'Transmitir Réplica ao Telão TV'
+                          : 'Transmitir Argumento Inicial'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.sectionTitle}>Perguntas da Bancada de Jurados</Text>
+                    <Text style={styles.sectionSubtitle}>
+                      Envie uma pergunta provocativa que aparecerá ao vivo no telão para os dois debatedores responderem:
+                    </Text>
+
+                    <TextInput
+                      style={styles.textArea}
+                      value={courtQuestionText}
+                      onChangeText={setCourtQuestionText}
+                      placeholder="Ex: Como sua tese explica o custo real disso?"
+                      placeholderTextColor={colors.ink.muted}
+                      multiline
+                      maxLength={200}
+                      numberOfLines={3}
+                    />
+
+                    <TouchableOpacity
+                      style={[
+                        styles.submitArgButton,
+                        { marginTop: 12 },
+                        courtQuestionSent && styles.submitArgButtonSuccess,
+                      ]}
+                      onPress={handleSubmitCourtQuestion}
+                    >
+                      <Text style={styles.submitArgButtonText}>
+                        {courtQuestionSent
+                          ? '[OK] Pergunta Enviada ao Telão!'
+                          : 'Enviar Pergunta aos Debatedores'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {debate?.court_questions && debate.court_questions.length > 0 && (
+                      <View style={{ marginTop: 14 }}>
+                        <Text style={styles.reactionTitle}>Perguntas em Destaque:</Text>
+                        {debate.court_questions.slice(-3).map((q) => (
+                          <View key={q.id} style={styles.opponentBox}>
+                            <Text style={styles.opponentBoxLabel}>{q.nickname}:</Text>
+                            <Text style={styles.opponentBoxText}>"{q.question}"</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </>
                 )}
-
-                <TextInput
-                  style={styles.textArea}
-                  value={argumentText}
-                  onChangeText={setArgumentText}
-                  placeholder={
-                    isDebater
-                      ? 'Escreva aqui seus melhores argumentos e defenda sua posição...'
-                      : 'Você pode enviar sugestões ou notas para a bancada...'
-                  }
-                  placeholderTextColor={colors.ink.muted}
-                  multiline
-                  maxLength={280}
-                  numberOfLines={4}
-                />
-
-                {/* Character Count */}
-                <View style={styles.charCountRow}>
-                  <Text style={[styles.charCountText, argumentText.length > 250 && styles.charCountWarning]}>
-                    {argumentText.length} / 280 caracteres
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.submitArgButton, argumentSent && styles.submitArgButtonSuccess]}
-                  onPress={handleSubmitArg}
-                >
-                  <Text style={styles.submitArgButtonText}>
-                    {argumentSent ? '✓ Argumento Transmitido ao Telão!' : 'Transmitir Tese ao Telão TV'}
-                  </Text>
-                </TouchableOpacity>
               </View>
             )}
 
@@ -428,7 +550,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                   </Text>
                   {votedSide === 'side_a' && (
                     <View style={styles.votedBadgeContainer}>
-                      <Text style={styles.votedBadge}>✓ SEU VOTO COMPUTADO</Text>
+                      <Text style={styles.votedBadge}>[SEU VOTO FOI COMPUTADO]</Text>
                     </View>
                   )}
                 </TactileCard>
@@ -450,7 +572,9 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                   </Text>
                   {votedSide === 'side_b' && (
                     <View style={styles.votedBadgeContainer}>
-                      <Text style={[styles.votedBadge, { color: colors.ink.main }]}>✓ SEU VOTO COMPUTADO</Text>
+                      <Text style={[styles.votedBadge, { color: colors.ink.main }]}>
+                        [SEU VOTO FOI COMPUTADO]
+                      </Text>
                     </View>
                   )}
                 </TactileCard>
@@ -482,10 +606,10 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
           </View>
         )}
 
-        {/* Live Audience Emojis Burst Wheel (Item 21) */}
+        {/* Live Audience Reactions Burst Row */}
         <View style={styles.reactionSection}>
           <View style={styles.reactionHeaderRow}>
-            <Text style={styles.reactionTitle}>Reações em Tempo Real:</Text>
+            <Text style={styles.reactionTitle}>Reações no Telão em Tempo Real:</Text>
             {comboCount > 1 && (
               <View style={styles.comboBadge}>
                 <Text style={styles.comboText}>x{comboCount} COMBO!</Text>
@@ -494,14 +618,14 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
           </View>
 
           <View style={styles.reactionRow}>
-            {PARTY_REACTIONS.map((emoji) => (
+            {PARTY_REACTIONS.map((label) => (
               <TouchableOpacity
-                key={emoji}
+                key={label}
                 style={styles.reactionButton}
-                onPress={() => handleReactionPress(emoji)}
+                onPress={() => handleReactionPress(label)}
                 activeOpacity={0.6}
               >
-                <Text style={styles.reactionEmoji}>{emoji}</Text>
+                <Text style={styles.reactionEmoji}>{label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -661,6 +785,25 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 12,
   },
+  opponentBox: {
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  opponentBoxLabel: {
+    color: colors.brand.reward,
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  opponentBoxText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
   templatePillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -684,7 +827,7 @@ const styles = StyleSheet.create({
     padding: 14,
     color: '#FFF',
     fontSize: 14,
-    minHeight: 100,
+    minHeight: 90,
     textAlignVertical: 'top',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
@@ -708,10 +851,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: 'center',
-    shadowColor: colors.brand.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
     elevation: 4,
   },
   submitArgButtonSuccess: {
@@ -864,17 +1003,21 @@ const styles = StyleSheet.create({
   reactionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   reactionButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   reactionEmoji: {
-    fontSize: 22,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFF',
   },
   topBarRight: {
     flexDirection: 'row',
@@ -915,7 +1058,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0, 206, 201, 0.35)',
   },
   roleBannerIcon: {
-    fontSize: 24,
+    fontSize: 14,
+    fontWeight: '900',
+    color: colors.brand.reward,
   },
   roleBannerTextCol: {
     flex: 1,
