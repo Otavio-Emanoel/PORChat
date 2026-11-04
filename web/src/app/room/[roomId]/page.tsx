@@ -1,20 +1,35 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getStoredUser, getStoredToken, clearStoredSession, logoutUser, type User } from '@/lib/auth';
 import { useWebSocket } from '@/lib/useWebSocket';
+import type { Room, GameStartPayload } from '@/lib/types';
+import {
+  API_BASE,
+  uploadRoomAttachment,
+  leaveRoomApi,
+  addGroupMembersApi,
+  removeGroupMemberApi,
+  toggleGroupAdminApi,
+  updateGroupSettingsApi,
+  regenerateRoomCodeApi,
+} from '@/lib/apiClient';
+import { VoiceRecorderSession } from '@/lib/voiceRecorder';
 import { AuthModal } from '@/components/AuthModal';
 import { CreateGroupModal } from '@/components/CreateGroupModal';
 import { ProfileModal } from '@/components/ProfileModal';
 import { InChatGameCard } from '@/components/InChatGameCard';
 import { CommandPalette } from '@/components/CommandPalette';
-import { MessageHoverBar, MessageReactionPills } from '@/components/MessageReactions';
+import { MessageReactions } from '@/components/MessageReactions';
 import { PinnedBanner } from '@/components/PinnedBanner';
 import { AudioWaveformBubble } from '@/components/AudioWaveformBubble';
 import { GroupDrawer } from '@/components/GroupDrawer';
 import { SecurityAuditModal } from '@/components/SecurityAuditModal';
 import { ExternalLinkModal } from '@/components/ExternalLinkModal';
+import GameSetupModal from '@/components/GameSetupModal';
+import LeaderboardModal from '@/components/LeaderboardModal';
+import { PollBubble, CreatePollModal } from '@/components/PollComponents';
 import { ClientRateLimiter, sanitizeClientInput, SessionInactivityGuard, getStoredSecuritySettings } from '@/lib/security';
 import { audioFeedback } from '@/lib/audioFeedback';
 import {
@@ -29,8 +44,8 @@ import {
   Check,
   Plus,
   Search,
-  Smile,
   Mic,
+  Square,
   Pause,
   Play,
   SkipForward,
@@ -45,26 +60,30 @@ import {
   Volume2,
   VolumeX,
   Paperclip,
+  BarChart3,
+  Trophy,
+  Reply,
+  FileText,
+  Download,
+  Edit3,
 } from 'lucide-react';
 import Link from 'next/link';
-
-interface RoomData {
-  id: string;
-  name: string;
-  code: string;
-  is_group: boolean;
-  members?: string[];
-  created_by?: string;
-  created_at?: string;
-  last_message?: string;
-  last_message_at?: string;
-  unread_count?: number;
-}
 
 interface Contact {
   id: string;
   nickname: string;
   email: string;
+  avatar_color?: string;
+  status_text?: string;
+  bio?: string;
+}
+
+interface PendingAttachment {
+  name: string;
+  size: string;
+  mimeType: string;
+  dataBase64: string;
+  kind: 'image' | 'document';
 }
 
 export default function RoomPage() {
@@ -78,20 +97,21 @@ export default function RoomPage() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
   const [nickname, setNickname] = useState('');
-  const [userAvatar, setUserAvatar] = useState('OE');
+  const [userAvatar, setUserAvatar] = useState('#6C5CE7');
   const [userStatus, setUserStatus] = useState('Disponível');
+  const [userBio, setUserBio] = useState('');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const [inputText, setInputText] = useState('');
-  const [roomInfo, setRoomInfo] = useState<RoomData | null>(null);
-  const [allRooms, setAllRooms] = useState<RoomData[]>([]);
+  const [roomInfo, setRoomInfo] = useState<Room | null>(null);
+  const [allRooms, setAllRooms] = useState<Room[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [activeTab, setActiveTab] = useState<'all' | 'groups' | 'direct' | 'contacts'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // New polish & resiliency state (Items 21, 22, 26, 27, 28)
+  // Search, Modals & Resiliency State
   const [isSearchingMessages, setIsSearchingMessages] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
   const [nowTick, setNowTick] = useState(Date.now());
@@ -100,17 +120,31 @@ export default function RoomPage() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
 
-  // Modern chat & media states
+  // Game Setup, Leaderboard & Polls Modals
+  const [isGameSetupOpen, setIsGameSetupOpen] = useState(false);
+  const [gameSetupMode, setGameSetupMode] = useState<'debate' | 'quiz'>('debate');
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [isCreatePollOpen, setIsCreatePollOpen] = useState(false);
+
+  // Modern chat, edit, reply & media states
   const [isMuted, setIsMuted] = useState(false);
   const [isGroupDrawerOpen, setIsGroupDrawerOpen] = useState(false);
   const [isSecurityAuditOpen, setIsSecurityAuditOpen] = useState(false);
   const [externalLinkToOpen, setExternalLinkToOpen] = useState<string | null>(null);
   const clientRateLimiter = useRef(new ClientRateLimiter(6, 2000));
   const [replyingTo, setReplyingTo] = useState<{ id: string; nickname: string; content: string } | null>(null);
-  const [attachment, setAttachment] = useState<{ name: string; size: string } | null>(null);
+  const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null);
+  const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+
+  // Real Voice Recorder State
+  const voiceRecorderRef = useRef<VoiceRecorderSession | null>(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recordingWaveform, setRecordingWaveform] = useState<number[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prevMessagesLength = useRef(0);
-
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -118,6 +152,11 @@ export default function RoomPage() {
     const parts = name.trim().split(' ');
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return name.slice(0, 2).toUpperCase();
+  };
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3200);
   };
 
   // Inactivity guard
@@ -139,34 +178,35 @@ export default function RoomPage() {
     if (user) {
       setCurrentUser(user);
       setNickname(user.nickname);
+      if (user.avatar_color) setUserAvatar(user.avatar_color);
+      if (user.status_text) setUserStatus(user.status_text);
+      if (user.bio) setUserBio(user.bio);
     } else {
       setCurrentUser(null);
       setNickname('');
     }
     setIsAuthChecked(true);
 
-    const savedAvatar = localStorage.getItem('porchat_avatar_emoji');
-    if (savedAvatar) setUserAvatar(savedAvatar);
+    const savedAvatar = localStorage.getItem('porchat_avatar_color');
+    if (savedAvatar && !user?.avatar_color) setUserAvatar(savedAvatar);
 
     const savedStatus = localStorage.getItem('porchat_status_text');
-    if (savedStatus) setUserStatus(savedStatus);
+    if (savedStatus && !user?.status_text) setUserStatus(savedStatus);
   }, []);
 
   // Fetch Rooms & Contacts for Authenticated User
   useEffect(() => {
     if (!currentUser) return;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
     const token = getStoredToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    // Fetch user-specific private rooms
-    fetch(`${apiBase}/api/rooms?user=${encodeURIComponent(currentUser.nickname)}`, { headers })
+    fetch(`${API_BASE}/api/rooms?user=${encodeURIComponent(currentUser.nickname)}`, { headers })
       .then((res) => {
         if (!res.ok) throw new Error('Não autenticado');
         return res.json();
       })
-      .then((data: RoomData[]) => {
+      .then((data: Room[]) => {
         const sorted = [...data].sort((a, b) => {
           const timeA = new Date(a.last_message_at || a.created_at || 0).getTime();
           const timeB = new Date(b.last_message_at || b.created_at || 0).getTime();
@@ -190,15 +230,14 @@ export default function RoomPage() {
       })
       .catch((err) => console.error('Erro ao buscar salas privadas:', err));
 
-    // Fetch contacts
-    fetch(`${apiBase}/api/users`)
+    fetch(`${API_BASE}/api/users`)
       .then((res) => res.json())
       .then((data: Contact[]) => {
         const others = data.filter((c) => c.nickname !== currentUser.nickname && c.email !== currentUser.email);
         setContacts(others);
       })
       .catch((err) => console.error('Erro ao buscar contatos:', err));
-  }, [roomId, currentUser]);
+  }, [roomId, currentUser, router]);
 
   const {
     isConnected,
@@ -207,14 +246,53 @@ export default function RoomPage() {
     onlineUsers,
     gameState,
     typingUsers,
+    pinnedMessage,
+    setPinnedMessage,
+    roomUpdate,
     sendMessage,
+    editMessage,
+    pinMessage,
+    unpinMessage,
+    markMessagesRead,
+    createPoll,
+    votePoll,
+    closePoll,
     sendTyping,
     sendAction,
   } = useWebSocket({
     roomId,
     nickname,
+    token: getStoredToken() || undefined,
     clientType: 'web',
   });
+
+  // Sync pinned message from roomInfo when entering room
+  useEffect(() => {
+    if (roomInfo?.pinned_message) {
+      setPinnedMessage(roomInfo.pinned_message);
+    }
+  }, [roomInfo, setPinnedMessage]);
+
+  // Sync live room metadata updates from WebSocket
+  useEffect(() => {
+    if (!roomUpdate || roomUpdate.id !== roomId) return;
+    setRoomInfo(roomUpdate);
+    setAllRooms((prev) => prev.map((r) => (r.id === roomUpdate.id ? { ...r, ...roomUpdate } : r)));
+  }, [roomUpdate, roomId]);
+
+  // Automatically mark unread messages as read when viewing room
+  useEffect(() => {
+    if (!isConnected || !nickname || messages.length === 0) return;
+    const unreadFromOthers = messages.filter(
+      (m) =>
+        m.nickname !== nickname &&
+        m.type !== 'system' &&
+        !(m.read_by || []).some((reader) => reader.toLowerCase() === nickname.toLowerCase())
+    );
+    if (unreadFromOthers.length > 0) {
+      markMessagesRead(unreadFromOthers.map((m) => m.id));
+    }
+  }, [messages, isConnected, nickname, markMessagesRead]);
 
   // Global Command Palette Shortcut (Cmd+K / Ctrl+K)
   useEffect(() => {
@@ -232,8 +310,54 @@ export default function RoomPage() {
     sendAction('chat:reaction', { message_id: messageId, emoji });
   };
 
-  const handleSendVoiceNote = () => {
-    sendMessage('[Mensagem de Voz: 0:14]');
+  // Real Microphone Voice Note Recording
+  const handleStartVoiceRecording = async () => {
+    if (isRecordingVoice) return;
+    const session = new VoiceRecorderSession();
+    voiceRecorderRef.current = session;
+    setIsRecordingVoice(true);
+    setRecordingSeconds(1);
+    setRecordingWaveform([28, 45, 62, 38, 70, 52]);
+    await session.start((bars, elapsed) => {
+      setRecordingWaveform(bars);
+      setRecordingSeconds(elapsed);
+    });
+  };
+
+  const handleCancelVoiceRecording = () => {
+    voiceRecorderRef.current?.cancel();
+    voiceRecorderRef.current = null;
+    setIsRecordingVoice(false);
+    setRecordingSeconds(0);
+    setRecordingWaveform([]);
+  };
+
+  const handleFinishVoiceRecording = async () => {
+    if (!voiceRecorderRef.current) return;
+    const session = voiceRecorderRef.current;
+    voiceRecorderRef.current = null;
+    setIsRecordingVoice(false);
+    setIsUploadingMedia(true);
+    try {
+      const note = await session.stop();
+      await uploadRoomAttachment(roomId, {
+        kind: 'audio',
+        file_name: note.fileName,
+        mime_type: note.mimeType,
+        data_base64: note.dataBase64,
+        duration_seconds: note.durationSeconds,
+        waveform: note.waveform,
+        reply_to_id: replyingTo?.id,
+      });
+      setReplyingTo(null);
+      audioFeedback.playSend();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Erro ao enviar áudio');
+    } finally {
+      setIsUploadingMedia(false);
+      setRecordingSeconds(0);
+      setRecordingWaveform([]);
+    }
   };
 
   // Synchronize last message and activity of the current room in the sidebar
@@ -307,18 +431,46 @@ export default function RoomPage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const sizeKB = (file.size / 1024).toFixed(1);
-      const sizeStr =
-        file.size > 1024 * 1024
-          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-          : `${sizeKB} KB`;
-      setAttachment({ name: file.name, size: sizeStr });
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('O arquivo excede o limite de 10 MB.');
+      return;
     }
+    const sizeKB = (file.size / 1024).toFixed(1);
+    const sizeStr =
+      file.size > 1024 * 1024
+        ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+        : `${sizeKB} KB`;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        setAttachment({
+          name: file.name,
+          size: sizeStr,
+          mimeType: file.type || 'application/octet-stream',
+          dataBase64: reader.result,
+          kind: file.type.startsWith('image/') ? 'image' : 'document',
+        });
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Handle active message editing
+    if (editingMessage) {
+      const cleanEdit = sanitizeClientInput(inputText).trim();
+      if (!cleanEdit) return;
+      editMessage(editingMessage.id, cleanEdit);
+      setEditingMessage(null);
+      setInputText('');
+      showToast('Mensagem atualizada');
+      return;
+    }
+
     if (!inputText.trim() && !attachment) return;
 
     if (!clientRateLimiter.current.allow()) {
@@ -329,48 +481,70 @@ export default function RoomPage() {
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     sendTyping(false);
 
-    let messageContent = sanitizeClientInput(inputText);
-    if (replyingTo) {
-      messageContent = `> [${replyingTo.nickname}]: ${replyingTo.content}\n${messageContent}`;
-      setReplyingTo(null);
-    }
+    const cleanCaption = sanitizeClientInput(inputText).trim();
+
     if (attachment) {
-      messageContent = messageContent
-        ? `${messageContent}\n[Arquivo: ${attachment.name} (${attachment.size})]`
-        : `[Arquivo: ${attachment.name} (${attachment.size})]`;
-      setAttachment(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setIsUploadingMedia(true);
+      try {
+        await uploadRoomAttachment(roomId, {
+          kind: attachment.kind,
+          file_name: attachment.name,
+          mime_type: attachment.mimeType,
+          data_base64: attachment.dataBase64,
+          caption: cleanCaption || attachment.name,
+          reply_to_id: replyingTo?.id,
+        });
+        setAttachment(null);
+        setReplyingTo(null);
+        setInputText('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Falha ao enviar anexo');
+      } finally {
+        setIsUploadingMedia(false);
+      }
+      return;
     }
 
-    sendMessage(messageContent);
+    sendMessage(cleanCaption, replyingTo?.id);
+    setReplyingTo(null);
     setInputText('');
   };
 
-  const handleSaveProfile = ({
-    avatar_color,
-    status_text,
-  }: {
+  const handleSaveProfile = (updated: {
+    nickname: string;
     avatar_color: string;
     status_text: string;
+    bio: string;
   }) => {
-    setUserAvatar(avatar_color);
-    setUserStatus(status_text);
-    localStorage.setItem('porchat_avatar_color', avatar_color);
-    localStorage.setItem('porchat_status_text', status_text);
+    setNickname(updated.nickname);
+    setUserAvatar(updated.avatar_color);
+    setUserStatus(updated.status_text);
+    setUserBio(updated.bio);
+    setCurrentUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            nickname: updated.nickname,
+            avatar_color: updated.avatar_color,
+            status_text: updated.status_text,
+            bio: updated.bio,
+          }
+        : prev
+    );
+    localStorage.setItem('porchat_avatar_color', updated.avatar_color);
+    localStorage.setItem('porchat_status_text', updated.status_text);
+    showToast('Perfil salvo com sucesso!');
   };
 
-  const handleStartDebate = () => {
-    sendAction('game:start', {
-      game_type: 'debate',
-      debater_a_id: currentUser?.id || nickname,
-    });
+  const handleOpenGameSetup = (mode: 'debate' | 'quiz') => {
+    setGameSetupMode(mode);
+    setIsGameSetupOpen(true);
   };
 
-  const handleStartQuiz = () => {
-    sendAction('game:start', {
-      game_type: 'quiz',
-      round_count: 5,
-    });
+  const handleLaunchGame = (payload: GameStartPayload) => {
+    sendAction('game:start', payload);
+    showToast(payload.game_type === 'debate' ? 'Partida de Debate iniciada!' : 'Quiz Relâmpago iniciado!');
   };
 
   // Periodic tick for relative timestamps (every 30s)
@@ -379,7 +553,7 @@ export default function RoomPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Global Keyboard shortcuts (Item 26)
+  // Global Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -388,16 +562,12 @@ export default function RoomPage() {
         setIsRoomMenuOpen(false);
         setIsProfileModalOpen(false);
         setIsCreateGroupOpen(false);
+        setEditingMessage(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
-  };
 
   const formatRelativeTime = (isoString: string) => {
     try {
@@ -427,9 +597,10 @@ export default function RoomPage() {
 
   const handleDeleteRoom = async () => {
     if (!confirm('Deseja realmente excluir este grupo/conversa permanentemente?')) return;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
     try {
-      const res = await fetch(`${apiBase}/api/rooms/${roomId}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/api/rooms/${roomId}?user=${encodeURIComponent(nickname)}`, {
+        method: 'DELETE',
+      });
       if (res.ok) {
         showToast('Sala excluída com sucesso!');
         const other = allRooms.find((r) => r.id !== roomId);
@@ -444,7 +615,12 @@ export default function RoomPage() {
     }
   };
 
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = async () => {
+    try {
+      await leaveRoomApi(roomId);
+    } catch {
+      // Fallback navigation even if already removed
+    }
     const other = allRooms.find((r) => r.id !== roomId);
     if (other) {
       router.push(`/room/${other.id}`);
@@ -453,12 +629,36 @@ export default function RoomPage() {
     }
   };
 
-  const handleReaction = (emoji: string) => {
-    sendAction('debate:reaction', { emoji });
+  // Group Administration Handlers
+  const handleAddGroupMembers = async (newMembers: string[]) => {
+    const updated = await addGroupMembersApi(roomId, newMembers);
+    setRoomInfo(updated);
+    showToast('Participantes adicionados ao grupo!');
   };
 
-  const handleVote = (choice: 'side_a' | 'side_b') => {
-    sendAction('debate:cast_vote', { choice });
+  const handleRemoveGroupMember = async (member: string) => {
+    const updated = await removeGroupMemberApi(roomId, member);
+    setRoomInfo(updated);
+    showToast(`${member} foi removido do grupo.`);
+  };
+
+  const handleToggleGroupAdmin = async (member: string) => {
+    const updated = await toggleGroupAdminApi(roomId, member);
+    setRoomInfo(updated);
+    showToast(`Permissões de administrador atualizadas para ${member}.`);
+  };
+
+  const handleUpdateGroupSettings = async (settings: { name: string; description: string }) => {
+    const updated = await updateGroupSettingsApi(roomId, settings);
+    setRoomInfo(updated);
+    setAllRooms((prev) => prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)));
+    showToast('Configurações do grupo salvas!');
+  };
+
+  const handleRegenerateCode = async () => {
+    const updated = await regenerateRoomCodeApi(roomId);
+    setRoomInfo(updated);
+    showToast(`Novo código gerado: ${updated.code}`);
   };
 
   // Moderation Controls
@@ -489,7 +689,6 @@ export default function RoomPage() {
   // Start 1-on-1 direct conversation with contact
   const handleStartDirectChat = async (contact: Contact) => {
     if (!currentUser) return;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
     try {
       const existing = allRooms.find(
         (r) => !r.is_group && (r.name === contact.nickname || r.members?.includes(contact.nickname))
@@ -503,7 +702,7 @@ export default function RoomPage() {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`${apiBase}/api/rooms`, {
+      const res = await fetch(`${API_BASE}/api/rooms`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -641,7 +840,6 @@ export default function RoomPage() {
               Assim como no WhatsApp, todas as conversas e grupos são privados e restritos à sua conta. Entre com seu perfil para acessar.
             </p>
 
-            {/* Manual Email Login / Register */}
             <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-center gap-3">
               <button
                 type="button"
@@ -706,10 +904,13 @@ export default function RoomPage() {
               type="button"
               onClick={() => setIsProfileModalOpen(true)}
               className="flex items-center gap-3 text-left hover:opacity-90 transition-all group"
-              title="Clique para customizar avatar e status"
+              title="Clique para customizar perfil, senha e estatísticas"
             >
               <div className="relative">
-                <div className="w-10 h-10 rounded-2xl bg-brand-primary flex items-center justify-center text-white font-bold text-sm shadow-xs group-hover:scale-105 transition-transform">
+                <div
+                  className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-xs group-hover:scale-105 transition-transform"
+                  style={{ backgroundColor: userAvatar.startsWith('#') ? userAvatar : '#6C5CE7' }}
+                >
                   {getMonogram(nickname || 'OE')}
                 </div>
                 <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
@@ -824,12 +1025,15 @@ export default function RoomPage() {
                     className="flex items-center justify-between p-3 rounded-2xl hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-brand-primary/15 text-brand-primary flex items-center justify-center font-bold text-sm">
+                      <div
+                        className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold text-sm"
+                        style={{ backgroundColor: c.avatar_color || '#6C5CE7' }}
+                      >
                         {c.nickname[0].toUpperCase()}
                       </div>
                       <div>
                         <div className="text-xs font-bold text-ink-main">{c.nickname}</div>
-                        <div className="text-[11px] text-gray-400">{c.email}</div>
+                        <div className="text-[11px] text-gray-400">{c.status_text || c.email}</div>
                       </div>
                     </div>
                     <button
@@ -941,7 +1145,7 @@ export default function RoomPage() {
           <div
             onClick={() => setIsGroupDrawerOpen(true)}
             className="flex items-center gap-3 cursor-pointer group"
-            title="Toque para ver membros e detalhes"
+            title="Toque para ver membros, administração e detalhes"
           >
             <div
               className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-heading font-bold text-base shadow-xs group-hover:scale-105 transition-transform ${
@@ -982,7 +1186,7 @@ export default function RoomPage() {
               <div className="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5">
                 <span>
                   {roomInfo?.is_group
-                    ? `${onlineUsers.length} online • toque para ver detalhes`
+                    ? `${onlineUsers.length} online • ${roomInfo.members?.length || 1} membros`
                     : `${onlineUsers.length} participante online`}
                 </span>
                 {latency !== null && (
@@ -997,7 +1201,7 @@ export default function RoomPage() {
             </div>
           </div>
 
-          {/* Header Action Buttons (Start Games, Host Moderation, Search, TV Mode & Room Menu) */}
+          {/* Header Action Buttons */}
           <div className="flex items-center gap-2">
             {/* Audio notifications mute toggle */}
             <button
@@ -1013,6 +1217,16 @@ export default function RoomPage() {
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
 
+            {/* Room Leaderboard & Match History Button */}
+            <button
+              type="button"
+              onClick={() => setIsLeaderboardOpen(true)}
+              className="p-2 rounded-xl bg-white hover:bg-amber-50 text-amber-600 border border-gray-200 transition-all tactile-btn"
+              title="Ranking e Histórico de Partidas da Sala"
+            >
+              <Trophy className="w-4 h-4" />
+            </button>
+
             {/* Command Palette Trigger */}
             <button
               type="button"
@@ -1020,10 +1234,10 @@ export default function RoomPage() {
               className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white hover:bg-gray-100 text-ink-muted border border-gray-200 text-xs font-mono font-bold transition-all shadow-2xs tactile-btn"
               title="Abrir Command Palette (Cmd+K ou Ctrl+K)"
             >
-              <kbd className="text-[10px] bg-gray-100 px-1 py-0.5 rounded border border-gray-200">⌘K</kbd>
+              <kbd className="text-[10px] bg-gray-100 px-1 py-0.5 rounded border border-gray-200">Ctrl+K</kbd>
             </button>
 
-            {/* Search messages toggle (Item 21) */}
+            {/* Search messages toggle */}
             <button
               type="button"
               onClick={() => {
@@ -1086,7 +1300,7 @@ export default function RoomPage() {
                   <>
                     <button
                       type="button"
-                      onClick={handleStartDebate}
+                      onClick={() => handleOpenGameSetup('debate')}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-brand-action text-white text-xs font-bold hover:bg-brand-action/90 shadow-xs tactile-btn transition-all"
                     >
                       <Swords className="w-3.5 h-3.5" />
@@ -1095,7 +1309,7 @@ export default function RoomPage() {
 
                     <button
                       type="button"
-                      onClick={handleStartQuiz}
+                      onClick={() => handleOpenGameSetup('quiz')}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-brand-primary text-white text-xs font-bold hover:bg-brand-primary/90 shadow-xs tactile-btn transition-all"
                     >
                       <Zap className="w-3.5 h-3.5" />
@@ -1115,7 +1329,7 @@ export default function RoomPage() {
               </>
             )}
 
-            {/* Room Options Dropdown (Item 28) */}
+            {/* Room Options Dropdown */}
             <div className="relative">
               <button
                 type="button"
@@ -1127,7 +1341,18 @@ export default function RoomPage() {
               </button>
 
               {isRoomMenuOpen && (
-                <div className="absolute right-0 top-11 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 p-1.5 z-50 animate-pop-in text-xs font-bold">
+                <div className="absolute right-0 top-11 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 p-1.5 z-50 animate-pop-in text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRoomMenuOpen(false);
+                      setIsLeaderboardOpen(true);
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-amber-50 text-amber-700 transition-colors text-left"
+                  >
+                    <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Ranking & Histórico</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -1167,7 +1392,7 @@ export default function RoomPage() {
           </div>
         </header>
 
-        {/* WebSocket Reconnection Status Banner (Item 23) */}
+        {/* WebSocket Reconnection Status Banner */}
         {!isConnected && (
           <div className="bg-amber-500 text-white px-4 py-2 text-xs font-bold flex items-center justify-between shadow-md z-20 animate-pulse">
             <div className="flex items-center gap-2">
@@ -1184,7 +1409,7 @@ export default function RoomPage() {
           </div>
         )}
 
-        {/* In-Chat Message Search Bar (Item 21) */}
+        {/* In-Chat Message Search Bar */}
         {isSearchingMessages && (
           <div className="px-4 py-2.5 bg-white border-b border-gray-200 flex items-center gap-2 shadow-xs z-20 animate-fade-in">
             <Search className="w-4 h-4 text-gray-400" />
@@ -1214,33 +1439,43 @@ export default function RoomPage() {
           </div>
         )}
 
-        {/* Floating Feedback Toast (Item 27) */}
+        {/* Floating Feedback Toast */}
         {toastMessage && (
           <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-ink-main text-white px-4 py-2 rounded-2xl text-xs font-bold shadow-xl border border-white/10 flex items-center gap-2 animate-bounce">
             <span>{toastMessage}</span>
           </div>
         )}
 
-        {/* In-Chat Interactive Game Activity Card (Item 10) */}
-        {isGameActive && (
+        {/* In-Chat Interactive Game Controller Card */}
+        {isGameActive && gameState && (
           <div className="px-4 pt-3">
             <InChatGameCard
-              roomId={roomId}
               gameState={gameState}
-              onEnterJury={() => handleVote('side_a')}
+              currentNickname={nickname}
+              currentUserId={currentUser?.id}
+              onOpenTV={() => window.open(`/tv/${roomId}`, '_blank')}
+              onCastVote={(choice) => sendAction('debate:cast_vote', { choice })}
+              onSubmitArgument={(text) => sendAction('debate:submit_argument', { argument: text })}
+              onPlayerReady={() => sendAction('debate:player_ready', {})}
+              onAskQuestion={(question) => sendAction('debate:ask_question', { question })}
+              onTriggerReaction={(label) => sendAction('debate:reaction', { emoji: label })}
+              onSubmitQuizAnswer={(opt) => sendAction('quiz:submit_answer', { option: opt })}
             />
           </div>
         )}
 
-        {/* Pinned Room Announcement Banner (Item 53) */}
+        {/* Pinned Message or Room Banner */}
         <PinnedBanner
-          title="Aviso da Sala"
+          title={roomInfo?.description ? 'Descrição do Grupo' : 'Aviso da Sala'}
           content={
-            roomInfo?.name
-              ? `Bem-vindo ao grupo ${roomInfo.name}! Converse e dispute no telão.`
-              : 'Converse, dispute debates e quizzes com sincronia em tempo real.'
+            roomInfo?.description ||
+            (roomInfo?.name
+              ? `Bem-vindo ao grupo ${roomInfo.name}! Converse, crie enquetes e dispute no telão.`
+              : 'Converse, dispute debates e quizzes com sincronia em tempo real.')
           }
           roomCode={roomInfo?.code}
+          pinnedMessage={pinnedMessage}
+          onUnpin={() => unpinMessage()}
         />
 
         {/* Message Feed (WhatsApp Bubbles) */}
@@ -1256,15 +1491,26 @@ export default function RoomPage() {
               <p className="text-xs max-w-sm mt-1 text-gray-600">
                 {messageSearchQuery
                   ? 'Tente buscar com outras palavras-chave ou limpe a busca.'
-                  : 'Mande uma mensagem para começar a conversa ou inicie um jogo no grupo!'}
+                  : 'Mande uma mensagem, grave uma nota de voz, crie uma enquete ou inicie um jogo no grupo!'}
               </p>
             </div>
           ) : (
             displayedMessages.map((msg, index) => {
               const isMe = msg.nickname === nickname;
               const isSystem = msg.type === 'system';
-              const isVoice = msg.content.startsWith('[Mensagem de Voz') || msg.content.includes('Mensagem de Voz');
+              const isGameCard = msg.type === 'game_card';
+              const isPoll = msg.type === 'poll' || Boolean(msg.poll);
+              const isVoice =
+                msg.type === 'voice' ||
+                msg.attachment?.kind === 'audio' ||
+                msg.content.startsWith('[Mensagem de Voz') ||
+                msg.content.includes('Mensagem de Voz');
+              const isImage = msg.type === 'image' || msg.attachment?.kind === 'image';
+              const isFile = msg.type === 'file' || msg.attachment?.kind === 'document';
               const prevMsg = index > 0 ? displayedMessages[index - 1] : undefined;
+              const readCount = (msg.read_by || []).filter(
+                (r) => r.toLowerCase() !== msg.nickname.toLowerCase()
+              ).length;
 
               if (isSystem) {
                 return (
@@ -1275,6 +1521,36 @@ export default function RoomPage() {
                         <Lock className="w-3 h-3 text-brand-primary" />
                         {msg.content}
                       </span>
+                    </div>
+                  </React.Fragment>
+                );
+              }
+
+              if (isGameCard) {
+                return (
+                  <React.Fragment key={msg.id}>
+                    {renderDateDivider(msg.created_at, prevMsg?.created_at)}
+                    <div className="flex justify-center my-3 animate-message-in">
+                      <div className="max-w-lg w-full rounded-2xl bg-[#1E1E2E] text-white px-4 py-3 shadow-md border border-brand-reward/30 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-brand-reward/20 text-brand-reward flex items-center justify-center shrink-0">
+                            <Trophy className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-brand-reward block">
+                              Resultado Oficial da Partida
+                            </span>
+                            <p className="text-xs text-slate-200 mt-0.5">{msg.content}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsLeaderboardOpen(true)}
+                          className="px-2.5 py-1.5 rounded-xl bg-brand-reward text-[#1E1E2E] text-[10px] font-bold shrink-0 hover:opacity-90 transition"
+                        >
+                          Ver Ranking
+                        </button>
+                      </div>
                     </div>
                   </React.Fragment>
                 );
@@ -1296,30 +1572,6 @@ export default function RoomPage() {
                       </span>
                     )}
 
-                    {/* Quick Telegram/WhatsApp-style Hover Reaction & Action Bar */}
-                    {hoveredMessageId === msg.id && (
-                      <MessageHoverBar
-                        messageId={msg.id}
-                        onReact={(emoji) => handleMessageReaction(msg.id, emoji)}
-                        isCurrentUser={isMe}
-                        onReply={() =>
-                          setReplyingTo({
-                            id: msg.id,
-                            nickname: msg.nickname,
-                            content: msg.content,
-                          })
-                        }
-                        onCopy={() => {
-                          navigator.clipboard.writeText(msg.content);
-                          showToast('Texto copiado para a área de transferência!');
-                        }}
-                        onDelete={() => {
-                          sendAction('chat:delete_message', { message_id: msg.id });
-                          showToast('Mensagem apagada');
-                        }}
-                      />
-                    )}
-
                     <div
                       className={`max-w-md px-3.5 py-2 rounded-2xl text-sm leading-relaxed shadow-xs relative transition-all ${
                         isMe
@@ -1327,39 +1579,157 @@ export default function RoomPage() {
                           : 'bg-white text-ink-main rounded-tl-none border border-gray-200/70'
                       }`}
                     >
-                      {isVoice ? (
-                        <AudioWaveformBubble durationSeconds={14} isCurrentUser={isMe} />
+                      {/* Structured Reply Preview */}
+                      {msg.reply_preview && (
+                        <div className="mb-1.5 rounded-xl bg-black/5 border-l-3 border-brand-primary px-2.5 py-1 text-xs">
+                          <span className="font-bold text-brand-primary block text-[10px]">
+                            {msg.reply_preview.nickname}
+                          </span>
+                          <span className="text-gray-600 line-clamp-1">{msg.reply_preview.content}</span>
+                        </div>
+                      )}
+
+                      {/* Message Content by Type */}
+                      {isPoll && msg.poll ? (
+                        <PollBubble
+                          messageId={msg.id}
+                          poll={msg.poll}
+                          currentNickname={nickname}
+                          onVote={(mid, oid) => votePoll(mid, oid)}
+                          onClosePoll={(mid) => closePoll(mid)}
+                        />
+                      ) : isVoice ? (
+                        <AudioWaveformBubble
+                          isMe={isMe}
+                          attachment={msg.attachment}
+                        />
+                      ) : isImage && msg.attachment ? (
+                        <div className="space-y-1.5">
+                          <img
+                            src={
+                              msg.attachment.url.startsWith('http')
+                                ? msg.attachment.url
+                                : `${API_BASE}${msg.attachment.url}`
+                            }
+                            alt={msg.attachment.file_name}
+                            className="max-h-64 rounded-xl object-cover border border-black/10"
+                          />
+                          <div className="flex items-center justify-between text-[10px] text-gray-500">
+                            <span className="truncate max-w-[180px]">{msg.attachment.file_name}</span>
+                            {msg.attachment.sha256 && (
+                              <span className="font-mono">SHA256: {msg.attachment.sha256.slice(0, 8)}</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : isFile && msg.attachment ? (
+                        <div className="flex items-center justify-between gap-3 rounded-xl bg-black/5 p-2.5 border border-black/10">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-lg bg-brand-primary/15 text-brand-primary flex items-center justify-center shrink-0">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-ink-main truncate">
+                                {msg.attachment.file_name}
+                              </p>
+                              <p className="text-[10px] text-gray-500 font-mono">
+                                {(msg.attachment.size_bytes / 1024).toFixed(1)} KB
+                                {msg.attachment.sha256 ? ` • SHA256 ${msg.attachment.sha256.slice(0, 8)}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <a
+                            href={
+                              msg.attachment.url.startsWith('http')
+                                ? msg.attachment.url
+                                : `${API_BASE}${msg.attachment.url}`
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 rounded-lg bg-brand-primary text-white hover:opacity-90 shrink-0"
+                            title="Baixar arquivo verificado"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
                       ) : (
                         renderMessageContent(msg.content)
                       )}
 
-                      <div className="flex items-center gap-1 float-right ml-3 mt-1 text-[10px] text-gray-400 font-mono">
+                      <div className="flex items-center gap-1.5 float-right ml-3 mt-1 text-[10px] text-gray-400 font-mono">
+                        {msg.edited_at && (
+                          <span className="italic text-gray-400">(editada)</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setReplyingTo({
+                              id: msg.id,
+                              nickname: msg.nickname,
+                              content: msg.content,
+                            })
+                          }
+                          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-brand-primary transition-opacity"
+                          title="Responder mensagem"
+                        >
+                          <Reply className="w-3 h-3" />
+                        </button>
                         <span>{formatRelativeTime(msg.created_at)}</span>
-                        {/* WhatsApp-style Double Checkmark */}
+                        {/* Real Read Receipt Indicator */}
                         {isMe && (
-                          <span className="text-brand-primary" title="Entregue">
+                          <span
+                            className={readCount > 0 ? 'text-brand-primary font-bold' : 'text-gray-400'}
+                            title={
+                              readCount > 0
+                                ? `Lida por ${readCount} participante(s)`
+                                : 'Entregue no servidor'
+                            }
+                          >
                             <svg className="w-3.5 h-3.5 inline" viewBox="0 0 16 16" fill="currentColor">
-                              <path d="M12.354 4.354a.5.5 0 0 0-.708-.708L5 10.293 1.854 7.146a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l7-7zm-3 0a.5.5 0 0 0-.708-.708L5 7.293 3.854 6.146a.5.5 0 1 0-.708.708l1.5 1.5a.5.5 0 0 0 .708 0l4-4z"/>
+                              <path d="M12.354 4.354a.5.5 0 0 0-.708-.708L5 10.293 1.854 7.146a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l7-7zm-3 0a.5.5 0 0 0-.708-.708L5 7.293 3.854 6.146a.5.5 0 1 0-.708.708l1.5 1.5a.5.5 0 0 0 .708 0l4-4z" />
                             </svg>
+                            {readCount > 0 && <span className="ml-0.5 text-[9px]">{readCount}</span>}
                           </span>
                         )}
                       </div>
                     </div>
 
-                    {/* Aggregated Reaction Badges */}
-                    <MessageReactionPills
-                      reactions={msg.reactions}
-                      currentUserId={nickname}
-                      onToggleReaction={(emoji) => handleMessageReaction(msg.id, emoji)}
-                      isCurrentUser={isMe}
-                    />
+                    {/* Unified Reaction Badges & Message Actions (Edit, Pin, Delete) */}
+                    {(hoveredMessageId === msg.id ||
+                      (msg.reactions && Object.keys(msg.reactions).length > 0)) && (
+                      <MessageReactions
+                        messageId={msg.id}
+                        reactions={msg.reactions}
+                        currentUserId={nickname}
+                        isMe={isMe}
+                        isPinned={pinnedMessage?.message_id === msg.id}
+                        canEdit={isMe && msg.type === 'text'}
+                        onReact={handleMessageReaction}
+                        onEdit={() => {
+                          setEditingMessage({ id: msg.id, content: msg.content });
+                          setInputText(msg.content);
+                        }}
+                        onPin={() => {
+                          if (pinnedMessage?.message_id === msg.id) {
+                            unpinMessage();
+                            showToast('Mensagem desafixada');
+                          } else {
+                            pinMessage(msg.id);
+                            showToast('Mensagem fixada no topo da sala');
+                          }
+                        }}
+                        onDelete={(id) => {
+                          sendAction('chat:delete_message', { message_id: id });
+                          showToast('Mensagem apagada');
+                        }}
+                      />
+                    )}
                   </div>
                 </React.Fragment>
               );
             })
           )}
 
-          {/* Typing Indicator (Item 58) */}
+          {/* Typing Indicator */}
           {Object.keys(typingUsers).length > 0 && (
             <div className="space-y-1.5 animate-pop-in">
               {Object.values(typingUsers).map((u) => (
@@ -1380,8 +1750,35 @@ export default function RoomPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Floating Frosted Glass Message Input Dock (Item 54) */}
-        <footer className="p-3 bg-white/80 backdrop-blur-md border-t border-gray-200/80">
+        {/* Message Input Dock */}
+        <footer className="p-3 bg-white/85 backdrop-blur-md border-t border-gray-200/80">
+          {/* Active Editing Banner */}
+          {editingMessage && (
+            <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-amber-50 border border-amber-200 border-l-4 border-l-amber-500 rounded-xl text-xs">
+              <div className="flex items-center gap-2 truncate">
+                <Edit3 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <div className="truncate">
+                  <span className="font-bold text-amber-800 block text-[11px]">
+                    Editando mensagem
+                  </span>
+                  <span className="text-amber-700 truncate block text-xs">
+                    {editingMessage.content}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingMessage(null);
+                  setInputText('');
+                }}
+                className="p-1 rounded-md hover:bg-amber-100 text-amber-700 ml-2 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Quoted Reply Preview Bar */}
           {replyingTo && (
             <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-gray-50 border border-gray-200 border-l-4 border-l-brand-primary rounded-xl text-xs animate-in fade-in duration-150">
@@ -1426,76 +1823,158 @@ export default function RoomPage() {
             </div>
           )}
 
-          <form onSubmit={handleSend} className="flex items-center gap-2">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            <button
-              type="button"
-              onClick={handleAttachmentClick}
-              className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center cursor-pointer"
-              title="Anexar arquivo"
-            >
-              <Paperclip className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleSendVoiceNote}
-              className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center cursor-pointer"
-              title="Gravar Áudio de Voz"
-            >
-              <Mic className="w-4 h-4" />
-            </button>
-            <input
-              type="text"
-              value={inputText}
-              onChange={handleInputChange}
-              placeholder="Digite uma mensagem..."
-              className="flex-1 px-4 py-2.5 rounded-2xl bg-gray-50/90 border border-gray-200 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary focus:bg-white transition-all"
-            />
-            <button
-              type="submit"
-              disabled={!inputText.trim() && !attachment}
-              className="p-2.5 rounded-full bg-brand-primary text-white font-bold hover:bg-brand-primary/90 disabled:opacity-40 shadow-xs tactile-btn transition-all flex items-center justify-center cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
+          {/* Live Voice Recording Bar */}
+          {isRecordingVoice ? (
+            <div className="flex items-center justify-between gap-3 px-4 py-2 rounded-2xl bg-red-50 border border-red-200">
+              <div className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                <span className="text-xs font-mono font-bold text-red-700">
+                  Gravando {Math.floor(recordingSeconds / 60)}:
+                  {(recordingSeconds % 60).toString().padStart(2, '0')}
+                </span>
+              </div>
+
+              <div className="flex flex-1 items-center justify-center gap-1 h-6 max-w-xs overflow-hidden">
+                {recordingWaveform.map((bar, idx) => (
+                  <span
+                    key={idx}
+                    className="w-1 rounded-full bg-red-500 transition-all duration-100"
+                    style={{ height: `${Math.max(20, Math.min(100, bar))}%` }}
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCancelVoiceRecording}
+                  className="px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFinishVoiceRecording}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-brand-primary text-white text-xs font-bold hover:opacity-90"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  <span>Enviar Áudio</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleSend} className="flex items-center gap-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={handleAttachmentClick}
+                className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center cursor-pointer"
+                title="Anexar imagem ou documento (verificado com SHA-256)"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCreatePollOpen(true)}
+                className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center cursor-pointer"
+                title="Criar Enquete Interativa"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleStartVoiceRecording}
+                disabled={isUploadingMedia}
+                className="p-2.5 rounded-full hover:bg-gray-100 text-ink-muted hover:text-brand-primary transition-all tactile-btn flex items-center justify-center cursor-pointer"
+                title="Gravar Nota de Voz Real"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+              <input
+                type="text"
+                value={inputText}
+                onChange={handleInputChange}
+                placeholder={
+                  editingMessage
+                    ? 'Edite sua mensagem...'
+                    : 'Digite uma mensagem...'
+                }
+                className="flex-1 px-4 py-2.5 rounded-2xl bg-gray-50/90 border border-gray-200 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary focus:bg-white transition-all"
+              />
+              <button
+                type="submit"
+                disabled={(!inputText.trim() && !attachment) || isUploadingMedia}
+                className="p-2.5 rounded-full bg-brand-primary text-white font-bold hover:bg-brand-primary/90 disabled:opacity-40 shadow-xs tactile-btn transition-all flex items-center justify-center cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          )}
         </footer>
       </main>
 
-      {/* Sliding Group Details & Members Drawer (Item 23) */}
+      {/* Sliding Group Details & Administration Drawer */}
       <GroupDrawer
         isOpen={isGroupDrawerOpen}
         onClose={() => setIsGroupDrawerOpen(false)}
-        roomName={roomInfo?.name || 'Conversa'}
-        roomCode={roomInfo?.code}
-        isGroup={!!roomInfo?.is_group}
-        members={roomInfo?.members || [nickname]}
+        room={roomInfo}
+        currentNickname={nickname}
         onlineUsers={onlineUsers}
-        createdBy={roomInfo?.created_by}
-        createdAt={roomInfo?.created_at}
-        onLeave={handleLeaveRoom}
-        onDelete={handleDeleteRoom}
-        isMuted={isMuted}
-        onToggleMute={handleToggleMute}
-        onOpenSecurityAudit={() => {
+        onAddMembers={handleAddGroupMembers}
+        onRemoveMember={handleRemoveGroupMember}
+        onToggleAdmin={handleToggleGroupAdmin}
+        onUpdateSettings={handleUpdateGroupSettings}
+        onRegenerateCode={handleRegenerateCode}
+        onOpenLeaderboard={() => {
           setIsGroupDrawerOpen(false);
-          setIsSecurityAuditOpen(true);
+          setIsLeaderboardOpen(true);
+        }}
+        onLeaveRoom={handleLeaveRoom}
+        onDeleteRoom={handleDeleteRoom}
+      />
+
+      {/* Interactive Game Setup Modal (Debate & Quiz) */}
+      <GameSetupModal
+        isOpen={isGameSetupOpen}
+        onClose={() => setIsGameSetupOpen(false)}
+        roomId={roomId}
+        currentNickname={nickname}
+        members={roomInfo?.members || [nickname]}
+        initialMode={gameSetupMode}
+        onLaunchGame={handleLaunchGame}
+      />
+
+      {/* Room Leaderboard & Match History Modal */}
+      <LeaderboardModal
+        isOpen={isLeaderboardOpen}
+        onClose={() => setIsLeaderboardOpen(false)}
+        roomId={roomId}
+        roomName={roomInfo?.name || 'Conversa'}
+      />
+
+      {/* Create Interactive Poll Modal */}
+      <CreatePollModal
+        isOpen={isCreatePollOpen}
+        onClose={() => setIsCreatePollOpen(false)}
+        onSubmitPoll={(question, options, multiSelect) => {
+          createPoll(question, options, multiSelect);
+          showToast('Enquete publicada na conversa!');
         }}
       />
 
-      {/* Linear-Style Command Palette (Item 48) */}
+      {/* Linear-Style Command Palette */}
       <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         roomId={roomId}
         roomCode={roomInfo?.code}
-        onStartDebate={handleStartDebate}
-        onStartQuiz={handleStartQuiz}
+        onStartDebate={() => handleOpenGameSetup('debate')}
+        onStartQuiz={() => handleOpenGameSetup('quiz')}
       />
 
       {/* Create Group Modal */}
@@ -1505,14 +1984,16 @@ export default function RoomPage() {
         currentUserNickname={nickname}
       />
 
-      {/* Profile & Avatar Customization Modal (Item 12) */}
+      {/* Profile, Password & Career Stats Modal */}
       <ProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         currentUser={{
+          id: currentUser?.id,
           nickname,
           avatar_color: userAvatar,
           status_text: userStatus,
+          bio: userBio,
         }}
         onSave={handleSaveProfile}
       />
