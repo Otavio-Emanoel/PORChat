@@ -169,6 +169,9 @@ func TestCustomBankStore_TopicsAndQuestionsHTTP(t *testing.T) {
 	if len(bank.GetRoomQuestions(roomID)) != 1 {
 		t.Errorf("expected 1 custom question in room bank")
 	}
+
+	// Give async file write goroutines time to flush to disk before temp directory cleanup
+	time.Sleep(50 * time.Millisecond)
 }
 
 func TestDebateEngine_DualArgumentsReadyCheckAndCourtQuestions(t *testing.T) {
