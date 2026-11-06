@@ -50,6 +50,7 @@ interface WebSocketContextType {
   updateMobileProfile: (payload: {
     nickname?: string;
     avatar_color?: string;
+    avatar_url?: string;
     status_text?: string;
     bio?: string;
   }) => Promise<boolean>;
@@ -480,6 +481,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const updateMobileProfile = async (payload: {
     nickname?: string;
     avatar_color?: string;
+    avatar_url?: string;
     status_text?: string;
     bio?: string;
   }): Promise<boolean> => {
