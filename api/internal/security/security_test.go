@@ -131,6 +131,8 @@ func TestOriginValidator(t *testing.T) {
 		{"Allowed Mobile Web Dev", "http://localhost:8082", true},
 		{"Allowed Production Domain", "https://porchat.app", true},
 		{"Allowed Local IP Web", "http://127.0.0.1:3001", true},
+		{"Allowed Private LAN IP Mobile", "http://192.168.3.138:8082", true},
+		{"Allowed Emulator Loopback", "http://10.0.2.2:8081", true},
 		{"Allowed Trailing Slash", "http://localhost:3001/", true},
 		{"Disallowed External Domain", "http://evil-attacker.com", false},
 		{"Disallowed Phishing Clone", "http://porchat.app.attacker.com", false},

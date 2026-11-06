@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -111,11 +112,17 @@ func (v *OriginValidator) ValidateOrigin(r *http.Request) bool {
 		return true
 	}
 
-	// Allow localhost / 127.0.0.1 on ports 3001 and 8082 for dev flexibility
+	// Allow localhost / 127.0.0.1 / private LAN IPs on PORChat dev ports
 	host := parsed.Hostname()
 	port := parsed.Port()
-	if (host == "localhost" || host == "127.0.0.1") && (port == "3001" || port == "8082" || port == "8081" || port == "8088") {
-		return true
+	devPort := port == "3001" || port == "8082" || port == "8081" || port == "8088" || port == ""
+	if devPort {
+		if host == "localhost" || host == "127.0.0.1" || host == "10.0.2.2" {
+			return true
+		}
+		if ip := net.ParseIP(host); ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
+			return true
+		}
 	}
 
 	// Mobile Expo local tunnel or exp scheme support
