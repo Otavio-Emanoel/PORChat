@@ -54,6 +54,16 @@ interface WebSocketContextType {
     status_text?: string;
     bio?: string;
   }) => Promise<boolean>;
+  uploadAttachment: (payload: {
+    kind: 'image' | 'document' | 'audio';
+    file_name: string;
+    mime_type: string;
+    data_base64: string;
+    caption?: string;
+    reply_to_id?: string;
+    duration_seconds?: number;
+    waveform?: number[];
+  }) => Promise<ChatMessage | null>;
   typingUsers: Record<string, { nickname: string; timestamp: number }>;
 }
 
@@ -513,6 +523,42 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  const uploadAttachment = async (payload: {
+    kind: 'image' | 'document' | 'audio';
+    file_name: string;
+    mime_type: string;
+    data_base64: string;
+    caption?: string;
+    reply_to_id?: string;
+    duration_seconds?: number;
+    waveform?: number[];
+  }): Promise<ChatMessage | null> => {
+    try {
+      const host = serverHost.trim() || 'localhost:8081';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+      const res = await fetch(
+        `http://${host}/api/rooms/${encodeURIComponent(roomId)}/attachments?user=${encodeURIComponent(nickname)}`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!res.ok) return null;
+      const data: ChatMessage = await res.json();
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === data.id)) return prev;
+        return [...prev, data];
+      });
+      return data;
+    } catch {
+      return null;
+    }
+  };
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -550,6 +596,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         submitQuizAnswer,
         loginWithCredentials,
         updateMobileProfile,
+        uploadAttachment,
         typingUsers,
       }}
     >
