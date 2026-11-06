@@ -120,7 +120,7 @@ export interface ChatMessage {
   user_id: string;
   nickname: string;
   content: string;
-  type: 'text' | 'game_card' | 'system' | 'voice' | 'file' | 'poll';
+  type: 'text' | 'game_card' | 'system' | 'voice' | 'file' | 'poll' | 'image';
   created_at: string;
   edited_at?: string;
   is_edited?: boolean;
