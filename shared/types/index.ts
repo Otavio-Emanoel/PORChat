@@ -114,6 +114,15 @@ export interface ChatPoll {
   created_at: string;
 }
 
+export interface ReplyPreview {
+  id: string;
+  nickname: string;
+  content: string;
+  type?: 'text' | 'game_card' | 'system' | 'voice' | 'file' | 'poll' | 'image';
+  media_url?: string;
+  file_name?: string;
+}
+
 export interface ChatMessage {
   id: string;
   room_id: string;
@@ -125,11 +134,7 @@ export interface ChatMessage {
   edited_at?: string;
   is_edited?: boolean;
   reply_to_id?: string;
-  reply_preview?: {
-    id: string;
-    nickname: string;
-    content: string;
-  };
+  reply_preview?: ReplyPreview;
   read_by?: string[];
   status?: MessageStatus;
   reactions?: Record<string, string[]>;
