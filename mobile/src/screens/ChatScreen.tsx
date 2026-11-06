@@ -608,7 +608,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                     onPress={() => votePoll(item.id, opt.id)}
                   >
                     <Text style={[styles.pollOptionText, voted && styles.pollOptionTextActive]}>
-                      {opt.text}
+                      {opt.label}
                     </Text>
                     <Text style={styles.pollOptionVotes}>{votes} v</Text>
                   </TouchableOpacity>
@@ -1136,7 +1136,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         <View style={styles.pinnedBanner}>
           <View style={{ flex: 1 }}>
             <Text style={styles.pinnedBannerTitle}>
-              Fixado por {pinnedMessage.pinned_by} ({pinnedMessage.nickname}):
+              Fixado por {pinnedMessage.pinned_by} ({pinnedMessage.sender_nickname}):
             </Text>
             <Text style={styles.pinnedBannerContent} numberOfLines={1}>
               {pinnedMessage.content}
@@ -1442,7 +1442,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                     <View style={{ flex: 1 }}>
                       <Text style={styles.contactCheckName}>{entry.nickname}</Text>
                       <Text style={styles.contactCheckEmail}>
-                        {entry.debate_wins} vitórias Debate • {entry.quiz_wins} vitórias Quiz
+                        {entry.debates_won} vitórias Debate • {entry.quiz_wins} vitórias Quiz
                       </Text>
                     </View>
                     <Text style={{ fontWeight: '900', color: colors.brand.primary }}>
@@ -1460,7 +1460,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                       <View style={{ flex: 1 }}>
                         <Text style={styles.contactCheckName}>{m.title}</Text>
                         <Text style={styles.contactCheckEmail}>
-                          Vencedor: {m.winner_label}
+                          Vencedor: {m.winner_nickname}
                         </Text>
                       </View>
                     </View>

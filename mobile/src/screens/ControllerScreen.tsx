@@ -185,7 +185,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
     debate?.debater_b?.id.toLowerCase() === nickname.toLowerCase();
   const isDebater = isDebaterA || isDebaterB;
 
-  const isReady = Boolean(debate?.ready_players?.[nickname]);
+  const isReady = Boolean(debate?.ready_players?.includes(nickname));
   const opponentOpening = isDebaterA
     ? debate?.debater_b?.opening_argument || debate?.debater_b?.argument
     : debate?.debater_a?.opening_argument || debate?.debater_a?.argument;
@@ -326,7 +326,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
                 </Text>
                 {quiz?.fastest_responder && (
                   <Text style={[styles.sectionSubtitle, { color: colors.brand.mint, fontWeight: 'bold' }]}>
-                    Mais rápido na rodada: {quiz.fastest_responder.nickname} ({quiz.fastest_responder.response_ms}ms)
+                    Mais rápido na rodada: {quiz.fastest_responder.nickname} ({quiz.fastest_responder.response_time_ms}ms)
                   </Text>
                 )}
                 {myQuizScore && (
