@@ -26,6 +26,7 @@ import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
 import type {
   ChatMessage,
+  MessageAttachment,
   RoomLeaderboardEntry,
   MatchHistoryRecord,
   TriviaDifficulty,
@@ -231,7 +232,14 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const [historyData, setHistoryData] = useState<MatchHistoryRecord[]>([]);
 
   // Reply & Edit State
-  const [replyingTo, setReplyingTo] = useState<{ id: string; nickname: string; content: string } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{
+    id: string;
+    nickname: string;
+    content: string;
+    type?: string;
+    attachment?: MessageAttachment | null;
+    poll?: any;
+  } | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null);
   const [selectedMessageForActions, setSelectedMessageForActions] = useState<ChatMessage | null>(null);
 
@@ -898,15 +906,134 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               onLongPress={() => setSelectedMessageForActions(item)}
               style={[styles.bubble, isMe ? styles.myBubble : styles.otherBubble]}
             >
-          {/* Reply Preview */}
-          {item.reply_preview && (
-            <View style={styles.replyPreviewBox}>
-              <Text style={styles.replyPreviewSender}>{item.reply_preview.nickname}</Text>
-              <Text style={styles.replyPreviewContent} numberOfLines={1}>
-                {item.reply_preview.content}
-              </Text>
-            </View>
-          )}
+          {/* Rich Reply Preview with Media Thumbnail & Icons */}
+          {item.reply_preview && (() => {
+            const repliedMsg =
+              messages.find((m) => m.id === item.reply_preview?.id) ||
+              messages.find((m) => m.id === item.reply_to_id);
+
+            const isReplyImage =
+              item.reply_preview.type === 'image' ||
+              repliedMsg?.type === 'image' ||
+              repliedMsg?.attachment?.kind === 'image' ||
+              item.reply_preview.content?.startsWith('Imagem:');
+            const isReplyVoice =
+              item.reply_preview.type === 'voice' ||
+              repliedMsg?.type === 'voice' ||
+              repliedMsg?.attachment?.kind === 'audio';
+            const isReplyFile =
+              item.reply_preview.type === 'file' ||
+              repliedMsg?.type === 'file' ||
+              repliedMsg?.attachment?.kind === 'document';
+            const isReplyPoll =
+              item.reply_preview.type === 'poll' ||
+              repliedMsg?.type === 'poll' ||
+              Boolean(repliedMsg?.poll);
+
+            const host = serverHost.trim() || 'localhost:8081';
+            const replyImageUri = item.reply_preview.media_url
+              ? item.reply_preview.media_url.startsWith('http') ||
+                item.reply_preview.media_url.startsWith('data:')
+                ? item.reply_preview.media_url
+                : `http://${host}${item.reply_preview.media_url}`
+              : repliedMsg?.attachment?.data_url ||
+                (repliedMsg?.attachment?.url
+                  ? repliedMsg.attachment.url.startsWith('http')
+                    ? repliedMsg.attachment.url
+                    : `http://${host}${repliedMsg.attachment.url}`
+                  : null);
+
+            const replyFileName =
+              item.reply_preview.file_name || repliedMsg?.attachment?.file_name;
+
+            return (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                style={styles.replyPreviewBox}
+                onPress={() => {
+                  const targetIndex = messages.findIndex(
+                    (m) => m.id === item.reply_preview?.id
+                  );
+                  if (targetIndex >= 0 && flatListRef.current) {
+                    flatListRef.current.scrollToIndex({
+                      index: targetIndex,
+                      animated: true,
+                    });
+                  }
+                }}
+              >
+                <View style={styles.replyPreviewInnerRow}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.replyPreviewSender}>
+                      {item.reply_preview.nickname}
+                    </Text>
+                    <View style={styles.replyPreviewContentRow}>
+                      {isReplyImage ? (
+                        <>
+                          <Ionicons
+                            name="camera"
+                            size={12}
+                            color={colors.brand.primary}
+                            style={{ marginRight: 4 }}
+                          />
+                          <Text style={styles.replyPreviewContent} numberOfLines={1}>
+                            {replyFileName || item.reply_preview.content || 'Foto'}
+                          </Text>
+                        </>
+                      ) : isReplyVoice ? (
+                        <>
+                          <Ionicons
+                            name="mic"
+                            size={12}
+                            color={colors.brand.primary}
+                            style={{ marginRight: 4 }}
+                          />
+                          <Text style={styles.replyPreviewContent} numberOfLines={1}>
+                            Mensagem de voz
+                          </Text>
+                        </>
+                      ) : isReplyFile ? (
+                        <>
+                          <Ionicons
+                            name="document-text"
+                            size={12}
+                            color={colors.brand.primary}
+                            style={{ marginRight: 4 }}
+                          />
+                          <Text style={styles.replyPreviewContent} numberOfLines={1}>
+                            {replyFileName || item.reply_preview.content}
+                          </Text>
+                        </>
+                      ) : isReplyPoll ? (
+                        <>
+                          <Ionicons
+                            name="stats-chart"
+                            size={12}
+                            color={colors.brand.primary}
+                            style={{ marginRight: 4 }}
+                          />
+                          <Text style={styles.replyPreviewContent} numberOfLines={1}>
+                            {repliedMsg?.poll?.question || item.reply_preview.content}
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={styles.replyPreviewContent} numberOfLines={1}>
+                          {item.reply_preview.content}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                  {isReplyImage && replyImageUri ? (
+                    <Image
+                      source={{ uri: replyImageUri }}
+                      style={styles.replyPreviewThumbnail}
+                      resizeMode="cover"
+                    />
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            );
+          })()}
 
           {/* Interactive Poll Bubble */}
           {item.poll ? (
@@ -1056,6 +1183,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 <TouchableOpacity
                   activeOpacity={0.9}
                   onPress={() => setFullscreenImageUri(attachmentUrl)}
+                  onLongPress={() => setSelectedMessageForActions(item)}
                   style={styles.imageBubbleWrapper}
                 >
                   <Image
@@ -1102,6 +1230,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             <View style={styles.attachmentFileContainer}>
               <TouchableOpacity
                 activeOpacity={0.8}
+                onLongPress={() => setSelectedMessageForActions(item)}
                 style={[
                   styles.fileCard,
                   isMe ? styles.fileCardMe : styles.fileCardOther,
@@ -1983,30 +2112,121 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         />
 
         {/* Reply / Edit Context Bar */}
-        {(replyingTo || editingMessage) && (
-          <View style={styles.replyContextBar}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.replyContextTitle}>
-                {editingMessage
-                  ? 'Editando sua mensagem'
-                  : `Respondendo a ${replyingTo?.nickname}`}
-              </Text>
-              <Text style={styles.replyContextBody} numberOfLines={1}>
-                {editingMessage ? editingMessage.content : replyingTo?.content}
-              </Text>
+        {(replyingTo || editingMessage) && (() => {
+          const isReplyImage =
+            replyingTo?.type === 'image' ||
+            replyingTo?.attachment?.kind === 'image' ||
+            replyingTo?.content?.startsWith('Imagem:');
+          const isReplyVoice =
+            replyingTo?.type === 'voice' ||
+            replyingTo?.attachment?.kind === 'audio';
+          const isReplyFile =
+            replyingTo?.type === 'file' ||
+            replyingTo?.attachment?.kind === 'document';
+          const isReplyPoll =
+            replyingTo?.type === 'poll' || Boolean(replyingTo?.poll);
+
+          const host = serverHost.trim() || 'localhost:8081';
+          const replyImageUri =
+            replyingTo?.attachment?.data_url ||
+            (replyingTo?.attachment?.url
+              ? replyingTo.attachment.url.startsWith('http')
+                ? replyingTo.attachment.url
+                : `http://${host}${replyingTo.attachment.url}`
+              : null);
+
+          return (
+            <View style={styles.replyContextBar}>
+              <View style={styles.replyContextInnerRow}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.replyContextTitle}>
+                    {editingMessage
+                      ? 'Editando sua mensagem'
+                      : `Respondendo a ${replyingTo?.nickname}`}
+                  </Text>
+                  <View style={styles.replyPreviewContentRow}>
+                    {editingMessage ? (
+                      <Text style={styles.replyContextBody} numberOfLines={1}>
+                        {editingMessage.content}
+                      </Text>
+                    ) : isReplyImage ? (
+                      <>
+                        <Ionicons
+                          name="camera"
+                          size={13}
+                          color={colors.brand.primary}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text style={styles.replyContextBody} numberOfLines={1}>
+                          {replyingTo?.attachment?.file_name ||
+                            replyingTo?.content ||
+                            'Foto'}
+                        </Text>
+                      </>
+                    ) : isReplyVoice ? (
+                      <>
+                        <Ionicons
+                          name="mic"
+                          size={13}
+                          color={colors.brand.primary}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text style={styles.replyContextBody} numberOfLines={1}>
+                          Mensagem de voz
+                        </Text>
+                      </>
+                    ) : isReplyFile ? (
+                      <>
+                        <Ionicons
+                          name="document-text"
+                          size={13}
+                          color={colors.brand.primary}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text style={styles.replyContextBody} numberOfLines={1}>
+                          {replyingTo?.attachment?.file_name || replyingTo?.content}
+                        </Text>
+                      </>
+                    ) : isReplyPoll ? (
+                      <>
+                        <Ionicons
+                          name="stats-chart"
+                          size={13}
+                          color={colors.brand.primary}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text style={styles.replyContextBody} numberOfLines={1}>
+                          {replyingTo?.poll?.question || replyingTo?.content}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={styles.replyContextBody} numberOfLines={1}>
+                        {replyingTo?.content}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                {isReplyImage && replyImageUri ? (
+                  <Image
+                    source={{ uri: replyImageUri }}
+                    style={styles.replyContextThumbnail}
+                    resizeMode="cover"
+                  />
+                ) : null}
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setReplyingTo(null);
+                  setEditingMessage(null);
+                  setInputText('');
+                }}
+                style={styles.cancelContextBtn}
+              >
+                <Ionicons name="close" size={18} color="#636E72" />
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              onPress={() => {
-                setReplyingTo(null);
-                setEditingMessage(null);
-                setInputText('');
-              }}
-              style={styles.cancelContextBtn}
-            >
-              <Text style={styles.cancelContextBtnText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+          );
+        })()}
 
         {/* Pending Attachment Preview Bar */}
         {pendingAttachment && (
@@ -2464,6 +2684,9 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                       id: selectedMessageForActions.id,
                       nickname: selectedMessageForActions.nickname,
                       content: selectedMessageForActions.content,
+                      type: selectedMessageForActions.type,
+                      attachment: selectedMessageForActions.attachment,
+                      poll: selectedMessageForActions.poll,
                     });
                     setSelectedMessageForActions(null);
                   }
@@ -3146,9 +3369,26 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: colors.brand.primary,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 6,
     marginBottom: 6,
+    minWidth: 180,
+  },
+  replyPreviewInnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  replyPreviewContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  replyPreviewThumbnail: {
+    width: 38,
+    height: 38,
+    borderRadius: 6,
+    marginLeft: 8,
   },
   replyPreviewSender: {
     fontSize: 10,
@@ -3158,6 +3398,7 @@ const styles = StyleSheet.create({
   replyPreviewContent: {
     fontSize: 11,
     color: '#495057',
+    flexShrink: 1,
   },
   pollContainer: {
     minWidth: 250,
@@ -3333,6 +3574,20 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderTopWidth: 1,
     borderTopColor: '#DEE2E6',
+    borderLeftWidth: 4,
+    borderLeftColor: colors.brand.primary,
+  },
+  replyContextInnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  replyContextThumbnail: {
+    width: 40,
+    height: 40,
+    borderRadius: 6,
+    marginLeft: 8,
   },
   replyContextTitle: {
     fontSize: 10,
