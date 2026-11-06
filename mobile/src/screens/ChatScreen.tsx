@@ -15,6 +15,7 @@ import {
   Easing,
   Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
 import type {
@@ -53,6 +54,38 @@ const POLL_PALETTE = [
   { fill: '#E2FBF3', border: '#1DD1A1', text: '#10AC84', bar: '#1DD1A1' }, // Option D (Emerald)
   { fill: '#EFEBFD', border: '#6C5CE7', text: '#5542D0', bar: '#6C5CE7' }, // Option E (Violet)
 ];
+
+const REACTION_CONFIG: Record<
+  string,
+  {
+    iconName: keyof typeof Ionicons.glyphMap;
+    label: string;
+    color: string;
+    bgColor: string;
+  }
+> = {
+  like: { iconName: 'thumbs-up', label: 'Curtir', color: '#0984E3', bgColor: '#E8F4FD' },
+  heart: { iconName: 'heart', label: 'Amei', color: '#FF7675', bgColor: '#FFEFEF' },
+  agree: { iconName: 'checkmark-circle', label: 'Concordo', color: '#00CEC9', bgColor: '#E0F9F8' },
+  fire: { iconName: 'flame', label: 'Destaque', color: '#FF6B6B', bgColor: '#FFEAE8' },
+  applause: { iconName: 'trophy', label: 'Aplausos', color: '#FDCB6E', bgColor: '#FFF8E7' },
+  laugh: { iconName: 'happy', label: 'Boa', color: '#FECA57', bgColor: '#FFF9EB' },
+  liked: { iconName: 'thumbs-up', label: 'Curtir', color: '#0984E3', bgColor: '#E8F4FD' },
+};
+
+const getReactionMeta = (rawKey: string) => {
+  const normalized = (rawKey || '').trim().toLowerCase();
+  return (
+    REACTION_CONFIG[normalized] || {
+      iconName: 'thumbs-up' as keyof typeof Ionicons.glyphMap,
+      label: rawKey,
+      color: colors.brand.primary,
+      bgColor: '#EFEBFD',
+    }
+  );
+};
+
+const QUICK_ACTION_REACTIONS = ['like', 'heart', 'agree', 'fire', 'applause', 'laugh'] as const;
 
 export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenController }) => {
   const {
@@ -134,6 +167,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   // Reply & Edit State
   const [replyingTo, setReplyingTo] = useState<{ id: string; nickname: string; content: string } | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null);
+  const [selectedMessageForActions, setSelectedMessageForActions] = useState<ChatMessage | null>(null);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -565,45 +599,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         {!isMe && <Text style={styles.senderName}>{item.nickname}</Text>}
         <TouchableOpacity
           activeOpacity={0.85}
-          onLongPress={() => {
-            const actions: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }> = [
-              { text: 'Reagir: Curtir', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'LIKED' }) },
-              { text: 'Reagir: Concordo', onPress: () => sendAction('chat:reaction', { message_id: item.id, emoji: 'AGREE' }) },
-              {
-                text: 'Responder',
-                onPress: () =>
-                  setReplyingTo({
-                    id: item.id,
-                    nickname: item.nickname,
-                    content: item.content,
-                  }),
-              },
-              {
-                text: pinnedMessage?.message_id === item.id ? 'Desafixar do Topo' : 'Fixar no Topo',
-                onPress: () =>
-                  pinnedMessage?.message_id === item.id ? unpinMessage() : pinMessage(item.id),
-              },
-            ];
-            if (isMe && item.type === 'text') {
-              actions.push({
-                text: 'Editar Mensagem',
-                onPress: () => {
-                  setEditingMessage({ id: item.id, content: item.content });
-                  setInputText(item.content);
-                },
-              });
-            }
-            if (isMe) {
-              actions.push({
-                text: 'Apagar Mensagem',
-                style: 'destructive',
-                onPress: () => deleteMessage(item.id),
-              });
-            }
-            actions.push({ text: 'Cancelar', style: 'cancel' });
-
-            Alert.alert('Opções da Mensagem', item.content.slice(0, 60), actions);
-          }}
+          onLongPress={() => setSelectedMessageForActions(item)}
           style={[styles.bubble, isMe ? styles.myBubble : styles.otherBubble]}
         >
           {/* Reply Preview */}
@@ -787,20 +783,51 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
         {/* Reaction Badges on Message */}
         {item.reactions && Object.keys(item.reactions).length > 0 && (
-          <View style={[styles.reactionPillsRow, isMe ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
-            {Object.entries(item.reactions).map(([emoji, users]) => (
-              <TouchableOpacity
-                key={emoji}
-                style={[
-                  styles.reactionPill,
-                  users.includes(nickname) && styles.reactionPillActive,
-                ]}
-                onPress={() => sendAction('chat:reaction', { message_id: item.id, emoji })}
-              >
-                <Text style={styles.reactionPillEmoji}>{emoji}</Text>
-                <Text style={styles.reactionPillCount}>{users.length}</Text>
-              </TouchableOpacity>
-            ))}
+          <View
+            style={[
+              styles.reactionPillsRow,
+              isMe ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' },
+            ]}
+          >
+            {Object.entries(item.reactions).map(([key, users]) => {
+              if (!users || users.length === 0) return null;
+              const hasReacted = users.some(
+                (u) => u.toLowerCase() === nickname.toLowerCase()
+              );
+              const meta = getReactionMeta(key);
+
+              return (
+                <TouchableOpacity
+                  key={key}
+                  activeOpacity={0.75}
+                  style={[
+                    styles.reactionPill,
+                    hasReacted && {
+                      backgroundColor: meta.bgColor,
+                      borderColor: meta.color,
+                      borderWidth: 1.5,
+                    },
+                  ]}
+                  onPress={() =>
+                    sendAction('chat:reaction', { message_id: item.id, emoji: key })
+                  }
+                >
+                  <Ionicons
+                    name={meta.iconName}
+                    size={12}
+                    color={hasReacted ? meta.color : '#636E72'}
+                  />
+                  <Text
+                    style={[
+                      styles.reactionPillCount,
+                      hasReacted && { color: meta.color, fontWeight: '800' },
+                    ]}
+                  >
+                    {users.length}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
       </View>
@@ -1664,6 +1691,177 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* MODAL: ACOES DA MENSAGEM (BOTTOM SHEET ELEGANTE) */}
+      <Modal
+        visible={Boolean(selectedMessageForActions)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedMessageForActions(null)}
+      >
+        <TouchableOpacity
+          style={styles.actionSheetBackdrop}
+          activeOpacity={1}
+          onPress={() => setSelectedMessageForActions(null)}
+        >
+          <View
+            style={styles.actionSheetContainer}
+            onStartShouldSetResponder={() => true}
+          >
+            {/* Sheet Handle */}
+            <View style={styles.actionSheetHandle} />
+
+            {/* Quick Floating Reaction Bar */}
+            <View style={styles.quickReactionBar}>
+              {QUICK_ACTION_REACTIONS.map((rKey) => {
+                const meta = REACTION_CONFIG[rKey];
+                const isSelected = Boolean(
+                  selectedMessageForActions?.reactions?.[rKey]?.some(
+                    (u) => u.toLowerCase() === nickname.toLowerCase()
+                  )
+                );
+
+                return (
+                  <TouchableOpacity
+                    key={rKey}
+                    activeOpacity={0.7}
+                    style={[
+                      styles.quickReactionBtn,
+                      isSelected && { backgroundColor: meta.bgColor, transform: [{ scale: 1.1 }] },
+                    ]}
+                    onPress={() => {
+                      if (selectedMessageForActions) {
+                        sendAction('chat:reaction', {
+                          message_id: selectedMessageForActions.id,
+                          emoji: rKey,
+                        });
+                        setSelectedMessageForActions(null);
+                      }
+                    }}
+                  >
+                    <Ionicons name={meta.iconName} size={22} color={meta.color} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Message Snippet Preview */}
+            {selectedMessageForActions && (
+              <View style={styles.actionSheetPreviewCard}>
+                <View style={styles.actionSheetPreviewAccent} />
+                <View style={styles.actionSheetPreviewContent}>
+                  <Text style={styles.actionSheetPreviewSender}>
+                    {selectedMessageForActions.nickname}
+                  </Text>
+                  <Text style={styles.actionSheetPreviewText} numberOfLines={2}>
+                    {selectedMessageForActions.content}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Actions List */}
+            <View style={styles.actionSheetItemsList}>
+              <TouchableOpacity
+                style={styles.actionSheetRow}
+                activeOpacity={0.7}
+                onPress={() => {
+                  if (selectedMessageForActions) {
+                    setReplyingTo({
+                      id: selectedMessageForActions.id,
+                      nickname: selectedMessageForActions.nickname,
+                      content: selectedMessageForActions.content,
+                    });
+                    setSelectedMessageForActions(null);
+                  }
+                }}
+              >
+                <View style={[styles.actionSheetIconWrapper, { backgroundColor: '#EFEBFD' }]}>
+                  <Ionicons name="return-up-back-outline" size={18} color={colors.brand.primary} />
+                </View>
+                <Text style={styles.actionSheetRowText}>Responder</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionSheetRow}
+                activeOpacity={0.7}
+                onPress={() => {
+                  if (selectedMessageForActions) {
+                    const isPinned = pinnedMessage?.message_id === selectedMessageForActions.id;
+                    if (isPinned) {
+                      unpinMessage();
+                    } else {
+                      pinMessage(selectedMessageForActions.id);
+                    }
+                    setSelectedMessageForActions(null);
+                  }
+                }}
+              >
+                <View style={[styles.actionSheetIconWrapper, { backgroundColor: '#FFF8E7' }]}>
+                  <Ionicons name="pin-outline" size={18} color="#D4A017" />
+                </View>
+                <Text style={styles.actionSheetRowText}>
+                  {pinnedMessage?.message_id === selectedMessageForActions?.id
+                    ? 'Desafixar do Topo'
+                    : 'Fixar no Topo'}
+                </Text>
+              </TouchableOpacity>
+
+              {selectedMessageForActions?.nickname === nickname &&
+                selectedMessageForActions?.type === 'text' && (
+                  <TouchableOpacity
+                    style={styles.actionSheetRow}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      if (selectedMessageForActions) {
+                        setEditingMessage({
+                          id: selectedMessageForActions.id,
+                          content: selectedMessageForActions.content,
+                        });
+                        setInputText(selectedMessageForActions.content);
+                        setSelectedMessageForActions(null);
+                      }
+                    }}
+                  >
+                    <View style={[styles.actionSheetIconWrapper, { backgroundColor: '#E0F9F8' }]}>
+                      <Ionicons name="pencil-outline" size={18} color="#008B87" />
+                    </View>
+                    <Text style={styles.actionSheetRowText}>Editar Mensagem</Text>
+                  </TouchableOpacity>
+                )}
+
+              {selectedMessageForActions?.nickname === nickname && (
+                <TouchableOpacity
+                  style={[styles.actionSheetRow, styles.actionSheetRowDestructive]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    if (selectedMessageForActions) {
+                      deleteMessage(selectedMessageForActions.id);
+                      setSelectedMessageForActions(null);
+                    }
+                  }}
+                >
+                  <View style={[styles.actionSheetIconWrapper, { backgroundColor: '#FFE5E5' }]}>
+                    <Ionicons name="trash-outline" size={18} color={colors.brand.action} />
+                  </View>
+                  <Text style={[styles.actionSheetRowText, styles.actionSheetRowTextDestructive]}>
+                    Apagar Mensagem
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Cancel Button */}
+            <TouchableOpacity
+              style={styles.actionSheetCancelBtn}
+              activeOpacity={0.8}
+              onPress={() => setSelectedMessageForActions(null)}
+            >
+              <Text style={styles.actionSheetCancelText}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -2586,6 +2784,130 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  actionSheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  actionSheetContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  actionSheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#DEE2E6',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  quickReactionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 24,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    marginBottom: 16,
+  },
+  quickReactionBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  actionSheetPreviewCard: {
+    flexDirection: 'row',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    padding: 12,
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  actionSheetPreviewAccent: {
+    width: 4,
+    borderRadius: 2,
+    backgroundColor: colors.brand.primary,
+    marginRight: 10,
+  },
+  actionSheetPreviewContent: {
+    flex: 1,
+  },
+  actionSheetPreviewSender: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.brand.primary,
+    marginBottom: 2,
+  },
+  actionSheetPreviewText: {
+    fontSize: 13,
+    color: '#495057',
+    lineHeight: 18,
+  },
+  actionSheetItemsList: {
+    gap: 4,
+    marginBottom: 12,
+  },
+  actionSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+  },
+  actionSheetRowDestructive: {
+    marginTop: 2,
+  },
+  actionSheetIconWrapper: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  actionSheetRowText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2D3436',
+  },
+  actionSheetRowTextDestructive: {
+    color: colors.brand.action,
+  },
+  actionSheetCancelBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: '#F1F3F5',
+    marginTop: 4,
+  },
+  actionSheetCancelText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#636E72',
+  },
   reactionPillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2595,26 +2917,26 @@ const styles = StyleSheet.create({
   reactionPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: '#F1F3F5',
-    borderRadius: 12,
+    paddingVertical: 4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
   },
   reactionPillActive: {
-    backgroundColor: '#EDE9FE',
-    borderColor: '#C4B5FD',
-  },
-  reactionPillEmoji: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: colors.brand.primary,
+    backgroundColor: '#EFEBFD',
+    borderColor: colors.brand.primary,
   },
   reactionPillCount: {
-    fontSize: 10,
-    fontWeight: 'bold',
+    fontSize: 11,
+    fontWeight: '700',
     color: '#4B5563',
   },
   emptyMessagesContainer: {
