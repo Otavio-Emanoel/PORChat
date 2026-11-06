@@ -116,9 +116,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
   // Create Poll Form
   const [pollQuestion, setPollQuestion] = useState('');
-  const [pollOptionA, setPollOptionA] = useState('');
-  const [pollOptionB, setPollOptionB] = useState('');
-  const [pollOptionC, setPollOptionC] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
   const [pollMultiSelect, setPollMultiSelect] = useState(false);
 
   // Game Setup Form
@@ -365,18 +363,40 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     setShowGameSetupModal(false);
   };
 
+  const handleAddPollOption = () => {
+    if (pollOptions.length >= 8) {
+      Alert.alert('Limite Atingido', 'Uma enquete pode ter no máximo 8 opções.');
+      return;
+    }
+    setPollOptions((prev) => [...prev, '']);
+  };
+
+  const handleRemovePollOption = (index: number) => {
+    if (pollOptions.length <= 2) {
+      Alert.alert('Mínimo Necessário', 'Uma enquete precisa de pelo menos 2 opções.');
+      return;
+    }
+    setPollOptions((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handlePollOptionChange = (index: number, text: string) => {
+    setPollOptions((prev) => prev.map((item, i) => (i === index ? text : item)));
+  };
+
   const handleCreatePollSubmit = () => {
     const cleanQ = pollQuestion.trim();
-    const opts = [pollOptionA.trim(), pollOptionB.trim(), pollOptionC.trim()].filter(Boolean);
-    if (cleanQ.length < 3 || opts.length < 2) {
-      Alert.alert('Enquete Incompleta', 'Informe uma pergunta e pelo menos 2 opções.');
+    const opts = pollOptions.map((o) => o.trim()).filter(Boolean);
+    if (cleanQ.length < 3) {
+      Alert.alert('Pergunta Inválida', 'Informe uma pergunta de pelo menos 3 caracteres.');
+      return;
+    }
+    if (opts.length < 2) {
+      Alert.alert('Opções Insuficientes', 'Informe pelo menos 2 opções válidas para a enquete.');
       return;
     }
     createPoll(cleanQ, opts, pollMultiSelect);
     setPollQuestion('');
-    setPollOptionA('');
-    setPollOptionB('');
-    setPollOptionC('');
+    setPollOptions(['', '']);
     setPollMultiSelect(false);
     setShowCreatePollModal(false);
   };
@@ -1352,46 +1372,99 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         animationType="slide"
         onRequestClose={() => setShowCreatePollModal(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Nova Enquete na Sala</Text>
-            <Text style={styles.modalSubtitle}>Crie uma votação rápida para o grupo:</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={[styles.modalCard, styles.pollModalCard]}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Nova Enquete na Sala</Text>
+              <TouchableOpacity
+                onPress={() => setShowCreatePollModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={styles.modalCloseX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalSubtitle}>Crie uma votação com opções personalizadas para o grupo:</Text>
 
-            <TextInput
-              style={styles.modalInput}
-              value={pollQuestion}
-              onChangeText={setPollQuestion}
-              placeholder="Pergunta da enquete..."
-              placeholderTextColor="#999"
-            />
-            <TextInput
-              style={styles.modalInput}
-              value={pollOptionA}
-              onChangeText={setPollOptionA}
-              placeholder="Opção 1"
-              placeholderTextColor="#999"
-            />
-            <TextInput
-              style={styles.modalInput}
-              value={pollOptionB}
-              onChangeText={setPollOptionB}
-              placeholder="Opção 2"
-              placeholderTextColor="#999"
-            />
-            <TextInput
-              style={styles.modalInput}
-              value={pollOptionC}
-              onChangeText={setPollOptionC}
-              placeholder="Opção 3 (opcional)"
-              placeholderTextColor="#999"
-            />
-
-            <TouchableOpacity
-              style={[styles.contactCheckRow, pollMultiSelect && styles.contactCheckRowActive]}
-              onPress={() => setPollMultiSelect((prev) => !prev)}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              style={styles.pollModalScroll}
+              contentContainerStyle={{ paddingBottom: 8 }}
             >
-              <Text style={styles.contactCheckName}>Permitir múltiplos votos</Text>
-            </TouchableOpacity>
+              <Text style={styles.modalFieldLabel}>Pergunta da Enquete</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={pollQuestion}
+                onChangeText={setPollQuestion}
+                placeholder="Ex: Qual o melhor jogo para jogar agora?"
+                placeholderTextColor="#999"
+              />
+
+              <View style={styles.pollOptionsHeaderRow}>
+                <Text style={styles.modalFieldLabel}>
+                  Opções ({pollOptions.length}/8)
+                </Text>
+                {pollOptions.length < 8 && (
+                  <TouchableOpacity
+                    style={styles.addOptionHeaderBtn}
+                    onPress={handleAddPollOption}
+                  >
+                    <Text style={styles.addOptionHeaderBtnText}>+ Adicionar Opção</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {pollOptions.map((opt, idx) => (
+                <View key={idx} style={styles.pollOptionInputRow}>
+                  <View style={styles.pollOptionNumberBadge}>
+                    <Text style={styles.pollOptionNumberText}>{idx + 1}</Text>
+                  </View>
+                  <TextInput
+                    style={[styles.modalInput, styles.pollOptionInputFlex]}
+                    value={opt}
+                    onChangeText={(val) => handlePollOptionChange(idx, val)}
+                    placeholder={`Opção ${idx + 1}${idx < 2 ? ' (obrigatória)' : ''}`}
+                    placeholderTextColor="#999"
+                  />
+                  {pollOptions.length > 2 && (
+                    <TouchableOpacity
+                      style={styles.removeOptionBtn}
+                      onPress={() => handleRemovePollOption(idx)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.removeOptionBtnText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+
+              {pollOptions.length < 8 && (
+                <TouchableOpacity
+                  style={styles.addOptionDashedBtn}
+                  onPress={handleAddPollOption}
+                >
+                  <Text style={styles.addOptionDashedBtnText}>+ Adicionar outra opção</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={[styles.contactCheckRow, pollMultiSelect && styles.contactCheckRowActive]}
+                onPress={() => setPollMultiSelect((prev) => !prev)}
+              >
+                <View
+                  style={[
+                    styles.pollMultiSelectBox,
+                    pollMultiSelect && styles.pollMultiSelectBoxActive,
+                  ]}
+                >
+                  {pollMultiSelect && <Text style={styles.pollMultiSelectCheck}>✓</Text>}
+                </View>
+                <Text style={styles.contactCheckName}>Permitir múltiplos votos</Text>
+              </TouchableOpacity>
+            </ScrollView>
 
             <TouchableOpacity style={styles.primaryModalBtn} onPress={handleCreatePollSubmit}>
               <Text style={styles.primaryModalBtnText}>Publicar Enquete</Text>
@@ -1403,7 +1476,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               <Text style={styles.closeModalBtnText}>Cancelar</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* MODAL: CONFIGURAR PARTIDA (DEBATE / QUIZ) */}
@@ -2241,6 +2314,111 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 22,
     elevation: 8,
+  },
+  pollModalCard: {
+    maxHeight: '85%',
+  },
+  pollModalScroll: {
+    maxHeight: 320,
+    marginBottom: 8,
+  },
+  modalFieldLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2D3436',
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  pollOptionsHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  addOptionHeaderBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: '#EFEBFD',
+  },
+  addOptionHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.brand.primary,
+  },
+  pollOptionInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  pollOptionNumberBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F1F3F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pollOptionNumberText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#636E72',
+  },
+  pollOptionInputFlex: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  removeOptionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFE5E5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeOptionBtnText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.brand.action,
+  },
+  addOptionDashedBtn: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#CED4DA',
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    backgroundColor: '#FAFAFA',
+  },
+  addOptionDashedBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.brand.primary,
+  },
+  pollMultiSelectBox: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#CED4DA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  pollMultiSelectBoxActive: {
+    backgroundColor: colors.brand.primary,
+    borderColor: colors.brand.primary,
+  },
+  pollMultiSelectCheck: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    lineHeight: 13,
   },
   modalHeaderRow: {
     flexDirection: 'row',
