@@ -46,6 +46,14 @@ interface ContactItem {
   status_text?: string;
 }
 
+const POLL_PALETTE = [
+  { fill: '#FFEAE8', border: '#FF6B6B', text: '#D63031', bar: '#FF7675' }, // Option A (Coral)
+  { fill: '#E0F9F8', border: '#00CEC9', text: '#009692', bar: '#00CEC9' }, // Option B (Mint)
+  { fill: '#FFF5DB', border: '#FECA57', text: '#B8860B', bar: '#FDCB6E' }, // Option C (Yellow)
+  { fill: '#E2FBF3', border: '#1DD1A1', text: '#10AC84', bar: '#1DD1A1' }, // Option D (Emerald)
+  { fill: '#EFEBFD', border: '#6C5CE7', text: '#5542D0', bar: '#6C5CE7' }, // Option E (Violet)
+];
+
 export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenController }) => {
   const {
     messages,
@@ -591,38 +599,144 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           {/* Interactive Poll Bubble */}
           {item.poll ? (
             <View style={styles.pollContainer}>
-              <Text style={styles.pollBadgeText}>
-                {item.poll.is_closed ? 'ENQUETE ENCERRADA' : 'ENQUETE ATIVA'}
-              </Text>
+              <View style={styles.pollHeaderRow}>
+                <View style={styles.pollBadgeWrapper}>
+                  <Text style={styles.pollBadgeText}>ENQUETE</Text>
+                </View>
+                <View
+                  style={[
+                    styles.pollStatusPill,
+                    item.poll.is_closed ? styles.pollStatusPillClosed : styles.pollStatusPillActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.pollStatusPillText,
+                      item.poll.is_closed
+                        ? styles.pollStatusPillTextClosed
+                        : styles.pollStatusPillTextActive,
+                    ]}
+                  >
+                    {item.poll.is_closed ? 'Encerrada' : 'Ativa'}
+                  </Text>
+                </View>
+              </View>
+
               <Text style={styles.pollQuestionText}>{item.poll.question}</Text>
-              {item.poll.options.map((opt) => {
-                const votes = opt.voter_ids?.length || 0;
-                const voted = (opt.voter_ids || []).some(
-                  (v) => v.toLowerCase() === nickname.toLowerCase()
+
+              {(() => {
+                const totalVotes = item.poll.options.reduce(
+                  (acc, opt) => acc + (opt.voter_ids?.length || 0),
+                  0
                 );
+                const maxVotes = Math.max(
+                  0,
+                  ...item.poll.options.map((opt) => opt.voter_ids?.length || 0)
+                );
+
                 return (
-                  <TouchableOpacity
-                    key={opt.id}
-                    disabled={item.poll?.is_closed}
-                    style={[styles.pollOptionBtn, voted && styles.pollOptionBtnActive]}
-                    onPress={() => votePoll(item.id, opt.id)}
-                  >
-                    <Text style={[styles.pollOptionText, voted && styles.pollOptionTextActive]}>
-                      {opt.label}
-                    </Text>
-                    <Text style={styles.pollOptionVotes}>{votes} v</Text>
-                  </TouchableOpacity>
+                  <>
+                    <View style={styles.pollOptionsList}>
+                      {item.poll.options.map((opt, optIndex) => {
+                        const votes = opt.voter_ids?.length || 0;
+                        const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+                        const voted = (opt.voter_ids || []).some(
+                          (v) => v.toLowerCase() === nickname.toLowerCase()
+                        );
+                        const isWinner =
+                          Boolean(item.poll?.is_closed) && maxVotes > 0 && votes === maxVotes;
+                        const optColor = POLL_PALETTE[optIndex % POLL_PALETTE.length];
+
+                        return (
+                          <TouchableOpacity
+                            key={opt.id}
+                            disabled={item.poll?.is_closed}
+                            activeOpacity={0.8}
+                            style={[
+                              styles.pollOptionBtn,
+                              voted && { borderColor: optColor.border, borderWidth: 1.5 },
+                              isWinner && styles.pollOptionWinnerBtn,
+                            ]}
+                            onPress={() => votePoll(item.id, opt.id)}
+                          >
+                            {/* Animated / Colored Progress Fill Bar */}
+                            {pct > 0 && (
+                              <View
+                                style={[
+                                  styles.pollOptionProgressBar,
+                                  {
+                                    width: `${pct}%`,
+                                    backgroundColor: optColor.fill,
+                                  },
+                                ]}
+                              />
+                            )}
+
+                            {/* Option Content Overlay */}
+                            <View style={styles.pollOptionContentRow}>
+                              <View style={styles.pollOptionLeft}>
+                                <View
+                                  style={[
+                                    styles.pollRadioCircle,
+                                    voted && {
+                                      backgroundColor: optColor.border,
+                                      borderColor: optColor.border,
+                                    },
+                                    isWinner && { borderColor: colors.brand.reward },
+                                  ]}
+                                >
+                                  {voted && <Text style={styles.pollRadioCheck}>✓</Text>}
+                                </View>
+                                <Text
+                                  style={[
+                                    styles.pollOptionText,
+                                    voted && styles.pollOptionTextActive,
+                                  ]}
+                                  numberOfLines={2}
+                                >
+                                  {opt.label}
+                                </Text>
+                              </View>
+
+                              <View style={styles.pollOptionRight}>
+                                <Text
+                                  style={[
+                                    styles.pollOptionPctText,
+                                    voted && { color: optColor.text, fontWeight: '900' },
+                                  ]}
+                                >
+                                  {pct}%
+                                </Text>
+                                <Text style={styles.pollOptionVotesCount}>
+                                  {votes} {votes === 1 ? 'voto' : 'votos'}
+                                </Text>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    {/* Poll Footer Information */}
+                    <View style={styles.pollFooterRow}>
+                      <Text style={styles.pollFooterTotalText}>
+                        {totalVotes} {totalVotes === 1 ? 'voto' : 'votos'}
+                        {item.poll.multi_select ? ' • Múltipla escolha' : ''}
+                      </Text>
+
+                      {!item.poll.is_closed &&
+                        item.poll.created_by.toLowerCase() === nickname.toLowerCase() && (
+                          <TouchableOpacity
+                            style={styles.closePollBtn}
+                            onPress={() => closePoll(item.id)}
+                          >
+                            <Text style={styles.closePollBtnText}>Encerrar</Text>
+                          </TouchableOpacity>
+                        )}
+                    </View>
+                  </>
                 );
-              })}
-              {!item.poll.is_closed &&
-                item.poll.created_by.toLowerCase() === nickname.toLowerCase() && (
-                  <TouchableOpacity
-                    style={styles.closePollBtn}
-                    onPress={() => closePoll(item.id)}
-                  >
-                    <Text style={styles.closePollBtnText}>Encerrar Enquete</Text>
-                  </TouchableOpacity>
-                )}
+              })()}
             </View>
           ) : (
             <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.otherMessageText]}>
@@ -1882,58 +1996,158 @@ const styles = StyleSheet.create({
     color: '#495057',
   },
   pollContainer: {
-    minWidth: 210,
-    paddingVertical: 4,
+    minWidth: 250,
+    paddingVertical: 2,
+  },
+  pollHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  pollBadgeWrapper: {
+    backgroundColor: '#EFEBFD',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   pollBadgeText: {
     fontSize: 9,
     fontWeight: '900',
     color: colors.brand.primary,
-    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  pollStatusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  pollStatusPillActive: {
+    backgroundColor: '#E0F9F8',
+  },
+  pollStatusPillClosed: {
+    backgroundColor: '#ECEFF1',
+  },
+  pollStatusPillText: {
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  pollStatusPillTextActive: {
+    color: '#008B87',
+  },
+  pollStatusPillTextClosed: {
+    color: '#78909C',
   },
   pollQuestionText: {
     fontSize: 14,
     fontWeight: '800',
     color: '#2D3436',
-    marginBottom: 8,
+    marginBottom: 10,
+    lineHeight: 18,
+  },
+  pollOptionsList: {
+    gap: 6,
+    marginBottom: 6,
   },
   pollOptionBtn: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
+    position: 'relative',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#DEE2E6',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    marginBottom: 5,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    overflow: 'hidden',
+    minHeight: 44,
+    justifyContent: 'center',
   },
-  pollOptionBtnActive: {
-    backgroundColor: '#F0EFFE',
-    borderColor: colors.brand.primary,
+  pollOptionWinnerBtn: {
+    borderColor: colors.brand.reward,
+    borderWidth: 1.5,
+  },
+  pollOptionProgressBar: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+  },
+  pollOptionContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    zIndex: 2,
+  },
+  pollOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 8,
+  },
+  pollRadioCircle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  pollRadioCheck: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    lineHeight: 12,
   },
   pollOptionText: {
     fontSize: 12,
     fontWeight: '600',
     color: '#2D3436',
+    flexShrink: 1,
   },
   pollOptionTextActive: {
-    color: colors.brand.primary,
+    color: '#1E1E2E',
     fontWeight: '800',
   },
-  pollOptionVotes: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#868E96',
+  pollOptionRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minWidth: 48,
+  },
+  pollOptionPctText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#636E72',
+  },
+  pollOptionVotesCount: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#95A5A6',
+    marginTop: 1,
+  },
+  pollFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+    marginTop: 4,
+  },
+  pollFooterTotalText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#7F8C8D',
   },
   closePollBtn: {
-    marginTop: 4,
-    alignSelf: 'flex-end',
+    backgroundColor: '#FFE5E5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   closePollBtnText: {
-    fontSize: 10,
-    fontWeight: 'bold',
+    fontSize: 9,
+    fontWeight: '800',
     color: colors.brand.action,
   },
   messageText: {
