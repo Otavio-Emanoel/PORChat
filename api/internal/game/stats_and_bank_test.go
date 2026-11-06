@@ -106,6 +106,9 @@ func TestStatsStore_DebateAndQuizRecording(t *testing.T) {
 	if len(msgs) < 2 {
 		t.Errorf("expected at least 2 game_card summary messages in room chat, got %d", len(msgs))
 	}
+
+	// Give async file write goroutines time to flush before temp directory cleanup
+	time.Sleep(50 * time.Millisecond)
 }
 
 func TestCustomBankStore_TopicsAndQuestionsHTTP(t *testing.T) {
