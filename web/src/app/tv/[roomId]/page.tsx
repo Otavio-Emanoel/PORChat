@@ -176,13 +176,13 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
 
   const isDebaterAReady =
     debateState?.debater_a &&
-    ( Boolean(debateState.ready_players?.[debateState.debater_a.id]) ||
-      Boolean(debateState.ready_players?.[debateState.debater_a.nickname]) );
+    ( Boolean(debateState.ready_players?.includes(debateState.debater_a.id)) ||
+      Boolean(debateState.ready_players?.includes(debateState.debater_a.nickname)) );
 
   const isDebaterBReady =
     debateState?.debater_b &&
-    ( Boolean(debateState.ready_players?.[debateState.debater_b.id]) ||
-      Boolean(debateState.ready_players?.[debateState.debater_b.nickname]) );
+    ( Boolean(debateState.ready_players?.includes(debateState.debater_b.id)) ||
+      Boolean(debateState.ready_players?.includes(debateState.debater_b.nickname)) );
 
   return (
     <div className="min-h-screen bg-surface-tv text-white flex flex-col justify-between p-4 sm:p-8 md:p-10 font-heading overflow-hidden relative select-none">
@@ -368,7 +368,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                                 {entry.nickname}
                               </span>
                               <span className="text-[10px] text-white/50 font-body block">
-                                {entry.debate_wins}D • {entry.quiz_wins}Q • {entry.matches_played} jogos
+                                {entry.debates_won}D • {entry.quiz_wins}Q • {entry.matches_played} jogos
                               </span>
                             </div>
                           </div>
@@ -478,7 +478,7 @@ export default function TVModePage({ params }: { params: { roomId: string } }) {
                       <Zap size={16} />
                       <span>
                         Gatilho Mais Rápido: <strong>{quizState.fastest_responder.nickname}</strong> em{' '}
-                        {quizState.fastest_responder.response_ms}ms
+                        {quizState.fastest_responder.response_time_ms}ms
                       </span>
                     </div>
                   </div>

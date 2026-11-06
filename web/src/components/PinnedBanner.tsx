@@ -26,7 +26,7 @@ export function PinnedBanner({
   if (isDismissed && !pinnedMessage) return null;
 
   const displayTitle = pinnedMessage
-    ? `Fixado por ${pinnedMessage.pinned_by} (${pinnedMessage.nickname})`
+    ? `Fixado por ${pinnedMessage.pinned_by} (${pinnedMessage.sender_nickname})`
     : title;
   const displayContent = pinnedMessage ? pinnedMessage.content : content;
 

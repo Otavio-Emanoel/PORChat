@@ -512,23 +512,23 @@ export default function RoomPage() {
   };
 
   const handleSaveProfile = (updated: {
-    nickname: string;
+    nickname?: string;
     avatar_color: string;
     status_text: string;
-    bio: string;
+    bio?: string;
   }) => {
-    setNickname(updated.nickname);
+    if (updated.nickname) setNickname(updated.nickname);
     setUserAvatar(updated.avatar_color);
     setUserStatus(updated.status_text);
-    setUserBio(updated.bio);
+    if (updated.bio !== undefined) setUserBio(updated.bio);
     setCurrentUser((prev) =>
       prev
         ? {
             ...prev,
-            nickname: updated.nickname,
+            nickname: updated.nickname || prev.nickname,
             avatar_color: updated.avatar_color,
             status_text: updated.status_text,
-            bio: updated.bio,
+            bio: updated.bio ?? prev.bio,
           }
         : prev
     );
@@ -648,8 +648,8 @@ export default function RoomPage() {
     showToast(`Permissões de administrador atualizadas para ${member}.`);
   };
 
-  const handleUpdateGroupSettings = async (settings: { name: string; description: string }) => {
-    const updated = await updateGroupSettingsApi(roomId, settings);
+  const handleUpdateGroupSettings = async (name: string, description: string) => {
+    const updated = await updateGroupSettingsApi(roomId, { name, description });
     setRoomInfo(updated);
     setAllRooms((prev) => prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)));
     showToast('Configurações do grupo salvas!');
@@ -1452,7 +1452,7 @@ export default function RoomPage() {
             <InChatGameCard
               gameState={gameState}
               currentNickname={nickname}
-              currentUserId={currentUser?.id}
+              currentUserId={currentUser?.id || nickname}
               onOpenTV={() => window.open(`/tv/${roomId}`, '_blank')}
               onCastVote={(choice) => sendAction('debate:cast_vote', { choice })}
               onSubmitArgument={(text) => sendAction('debate:submit_argument', { argument: text })}
@@ -1505,7 +1505,7 @@ export default function RoomPage() {
                 msg.attachment?.kind === 'audio' ||
                 msg.content.startsWith('[Mensagem de Voz') ||
                 msg.content.includes('Mensagem de Voz');
-              const isImage = msg.type === 'image' || msg.attachment?.kind === 'image';
+              const isImage = msg.attachment?.kind === 'image';
               const isFile = msg.type === 'file' || msg.attachment?.kind === 'document';
               const prevMsg = index > 0 ? displayedMessages[index - 1] : undefined;
               const readCount = (msg.read_by || []).filter(
