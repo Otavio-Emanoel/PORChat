@@ -21,7 +21,7 @@ import { CreateGroupModal } from '@/components/CreateGroupModal';
 import { ProfileModal } from '@/components/ProfileModal';
 import { InChatGameCard } from '@/components/InChatGameCard';
 import { CommandPalette } from '@/components/CommandPalette';
-import { MessageReactions } from '@/components/MessageReactions';
+import { MessageReactions, MessageHoverToolbar, MessageReactionBadges } from '@/components/MessageReactions';
 import { PinnedBanner } from '@/components/PinnedBanner';
 import { AudioWaveformBubble } from '@/components/AudioWaveformBubble';
 import { GroupDrawer } from '@/components/GroupDrawer';
@@ -66,6 +66,7 @@ import {
   FileText,
   Download,
   Edit3,
+  Image as ImageIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -132,7 +133,14 @@ export default function RoomPage() {
   const [isSecurityAuditOpen, setIsSecurityAuditOpen] = useState(false);
   const [externalLinkToOpen, setExternalLinkToOpen] = useState<string | null>(null);
   const clientRateLimiter = useRef(new ClientRateLimiter(6, 2000));
-  const [replyingTo, setReplyingTo] = useState<{ id: string; nickname: string; content: string } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{
+    id: string;
+    nickname: string;
+    content: string;
+    type?: string;
+    attachment?: any;
+    poll?: any;
+  } | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null);
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
@@ -1560,8 +1568,7 @@ export default function RoomPage() {
                 <React.Fragment key={msg.id}>
                   {renderDateDivider(msg.created_at, prevMsg?.created_at)}
                   <div
-                    onMouseEnter={() => setHoveredMessageId(msg.id)}
-                    onMouseLeave={() => setHoveredMessageId(null)}
+                    id={`msg-${msg.id}`}
                     className={`group relative flex flex-col ${
                       isMe ? 'items-end' : 'items-start'
                     } animate-message-in`}
@@ -1579,15 +1586,139 @@ export default function RoomPage() {
                           : 'bg-white text-ink-main rounded-tl-none border border-gray-200/70'
                       }`}
                     >
-                      {/* Structured Reply Preview */}
-                      {msg.reply_preview && (
-                        <div className="mb-1.5 rounded-xl bg-black/5 border-l-3 border-brand-primary px-2.5 py-1 text-xs">
-                          <span className="font-bold text-brand-primary block text-[10px]">
-                            {msg.reply_preview.nickname}
-                          </span>
-                          <span className="text-gray-600 line-clamp-1">{msg.reply_preview.content}</span>
-                        </div>
-                      )}
+                      {/* Floating Quick Action Toolbar (Absolute: Zero Layout Shift on Hover) */}
+                      <MessageHoverToolbar
+                        messageId={msg.id}
+                        isMe={isMe}
+                        isPinned={pinnedMessage?.message_id === msg.id}
+                        canEdit={isMe && msg.type === 'text'}
+                        onReact={handleMessageReaction}
+                        onReply={() =>
+                          setReplyingTo({
+                            id: msg.id,
+                            nickname: msg.nickname,
+                            content: msg.content,
+                            type: msg.type,
+                            attachment: msg.attachment,
+                            poll: msg.poll,
+                          })
+                        }
+                        onEdit={() => {
+                          setEditingMessage({ id: msg.id, content: msg.content });
+                          setInputText(msg.content);
+                        }}
+                        onPin={() => {
+                          if (pinnedMessage?.message_id === msg.id) {
+                            unpinMessage();
+                            showToast('Mensagem desafixada');
+                          } else {
+                            pinMessage(msg.id);
+                            showToast('Mensagem fixada no topo da sala');
+                          }
+                        }}
+                        onDelete={(id) => {
+                          sendAction('chat:delete_message', { message_id: id });
+                          showToast('Mensagem apagada');
+                        }}
+                      />
+
+                      {/* Structured Rich Reply Preview */}
+                      {msg.reply_preview && (() => {
+                        const repliedMsg =
+                          messages.find((m) => m.id === msg.reply_preview?.id) ||
+                          messages.find((m) => m.id === msg.reply_to_id);
+                        const isReplyImage =
+                          msg.reply_preview.type === 'image' ||
+                          repliedMsg?.type === 'image' ||
+                          repliedMsg?.attachment?.kind === 'image' ||
+                          msg.reply_preview.content.startsWith('Imagem:');
+                        const isReplyVoice =
+                          msg.reply_preview.type === 'voice' ||
+                          repliedMsg?.type === 'voice' ||
+                          repliedMsg?.attachment?.kind === 'audio';
+                        const isReplyFile =
+                          msg.reply_preview.type === 'file' ||
+                          repliedMsg?.type === 'file' ||
+                          repliedMsg?.attachment?.kind === 'document';
+                        const isReplyPoll =
+                          msg.reply_preview.type === 'poll' ||
+                          repliedMsg?.type === 'poll' ||
+                          Boolean(repliedMsg?.poll);
+
+                        const replyImgUrl = msg.reply_preview.media_url
+                          ? msg.reply_preview.media_url.startsWith('http') ||
+                            msg.reply_preview.media_url.startsWith('data:')
+                            ? msg.reply_preview.media_url
+                            : `${API_BASE}${msg.reply_preview.media_url}`
+                          : repliedMsg?.attachment?.data_url ||
+                            (repliedMsg?.attachment?.url
+                              ? repliedMsg.attachment.url.startsWith('http')
+                                ? repliedMsg.attachment.url
+                                : `${API_BASE}${repliedMsg.attachment.url}`
+                              : null);
+
+                        const replyFileName =
+                          msg.reply_preview.file_name || repliedMsg?.attachment?.file_name;
+
+                        return (
+                          <div
+                            onClick={() => {
+                              const el = document.getElementById(`msg-${msg.reply_preview?.id}`);
+                              if (el) {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                el.classList.add('ring-2', 'ring-brand-primary');
+                                setTimeout(() => el.classList.remove('ring-2', 'ring-brand-primary'), 1500);
+                              }
+                            }}
+                            className="mb-1.5 flex items-center justify-between gap-2 rounded-xl bg-black/5 hover:bg-black/10 transition-colors border-l-3 border-brand-primary px-2.5 py-1.5 text-xs cursor-pointer select-none"
+                            title="Clique para ver a mensagem original"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <span className="font-bold text-brand-primary block text-[10px] leading-tight">
+                                {msg.reply_preview.nickname}
+                              </span>
+                              <div className="flex items-center gap-1.5 text-gray-600 truncate mt-0.5">
+                                {isReplyImage ? (
+                                  <>
+                                    <ImageIcon className="w-3 h-3 text-brand-primary shrink-0" />
+                                    <span className="truncate">
+                                      {replyFileName || msg.reply_preview.content || 'Foto'}
+                                    </span>
+                                  </>
+                                ) : isReplyVoice ? (
+                                  <>
+                                    <Mic className="w-3 h-3 text-brand-primary shrink-0" />
+                                    <span className="truncate">Mensagem de voz</span>
+                                  </>
+                                ) : isReplyFile ? (
+                                  <>
+                                    <FileText className="w-3 h-3 text-brand-primary shrink-0" />
+                                    <span className="truncate">
+                                      {replyFileName || msg.reply_preview.content}
+                                    </span>
+                                  </>
+                                ) : isReplyPoll ? (
+                                  <>
+                                    <BarChart3 className="w-3 h-3 text-brand-primary shrink-0" />
+                                    <span className="truncate">
+                                      {repliedMsg?.poll?.question || msg.reply_preview.content}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="truncate">{msg.reply_preview.content}</span>
+                                )}
+                              </div>
+                            </div>
+                            {isReplyImage && replyImgUrl && (
+                              <img
+                                src={replyImgUrl}
+                                alt="Preview"
+                                className="w-9 h-9 rounded-md object-cover border border-black/10 shrink-0 ml-1.5"
+                              />
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Message Content by Type */}
                       {isPoll && msg.poll ? (
@@ -1666,6 +1797,9 @@ export default function RoomPage() {
                               id: msg.id,
                               nickname: msg.nickname,
                               content: msg.content,
+                              type: msg.type,
+                              attachment: msg.attachment,
+                              poll: msg.poll,
                             })
                           }
                           className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-brand-primary transition-opacity"
@@ -1693,34 +1827,14 @@ export default function RoomPage() {
                       </div>
                     </div>
 
-                    {/* Unified Reaction Badges & Message Actions (Edit, Pin, Delete) */}
-                    {(hoveredMessageId === msg.id ||
-                      (msg.reactions && Object.keys(msg.reactions).length > 0)) && (
-                      <MessageReactions
+                    {/* Unified Reaction Badges (Rendered statically only when active reactions exist - zero layout shift on hover) */}
+                    {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                      <MessageReactionBadges
                         messageId={msg.id}
                         reactions={msg.reactions}
                         currentUserId={nickname}
                         isMe={isMe}
-                        isPinned={pinnedMessage?.message_id === msg.id}
-                        canEdit={isMe && msg.type === 'text'}
                         onReact={handleMessageReaction}
-                        onEdit={() => {
-                          setEditingMessage({ id: msg.id, content: msg.content });
-                          setInputText(msg.content);
-                        }}
-                        onPin={() => {
-                          if (pinnedMessage?.message_id === msg.id) {
-                            unpinMessage();
-                            showToast('Mensagem desafixada');
-                          } else {
-                            pinMessage(msg.id);
-                            showToast('Mensagem fixada no topo da sala');
-                          }
-                        }}
-                        onDelete={(id) => {
-                          sendAction('chat:delete_message', { message_id: id });
-                          showToast('Mensagem apagada');
-                        }}
                       />
                     )}
                   </div>
@@ -1779,27 +1893,89 @@ export default function RoomPage() {
             </div>
           )}
 
-          {/* Quoted Reply Preview Bar */}
-          {replyingTo && (
-            <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-gray-50 border border-gray-200 border-l-4 border-l-brand-primary rounded-xl text-xs animate-in fade-in duration-150">
-              <div className="truncate">
-                <span className="font-bold text-brand-primary block text-[11px] leading-tight">
-                  Respondendo a {replyingTo.nickname}
-                </span>
-                <span className="text-gray-600 truncate block text-xs mt-0.5">
-                  {replyingTo.content}
-                </span>
+          {/* Quoted Rich Reply Preview Bar */}
+          {replyingTo && (() => {
+            const isReplyImage =
+              replyingTo.type === 'image' ||
+              replyingTo.attachment?.kind === 'image' ||
+              replyingTo.content.startsWith('Imagem:');
+            const isReplyVoice =
+              replyingTo.type === 'voice' ||
+              replyingTo.attachment?.kind === 'audio';
+            const isReplyFile =
+              replyingTo.type === 'file' ||
+              replyingTo.attachment?.kind === 'document';
+            const isReplyPoll =
+              replyingTo.type === 'poll' || Boolean(replyingTo.poll);
+
+            const replyImgUrl =
+              replyingTo.attachment?.data_url ||
+              (replyingTo.attachment?.url
+                ? replyingTo.attachment.url.startsWith('http')
+                  ? replyingTo.attachment.url
+                  : `${API_BASE}${replyingTo.attachment.url}`
+                : null);
+
+            return (
+              <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-gray-50 border border-gray-200 border-l-4 border-l-brand-primary rounded-xl text-xs animate-in fade-in duration-150">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-bold text-brand-primary block text-[11px] leading-tight">
+                      Respondendo a {replyingTo.nickname}
+                    </span>
+                    <div className="flex items-center gap-1.5 text-gray-600 truncate text-xs mt-0.5">
+                      {isReplyImage ? (
+                        <>
+                          <ImageIcon className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+                          <span className="truncate">
+                            {replyingTo.attachment?.file_name ||
+                              replyingTo.content ||
+                              'Foto'}
+                          </span>
+                        </>
+                      ) : isReplyVoice ? (
+                        <>
+                          <Mic className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+                          <span className="truncate">Mensagem de voz</span>
+                        </>
+                      ) : isReplyFile ? (
+                        <>
+                          <FileText className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+                          <span className="truncate">
+                            {replyingTo.attachment?.file_name || replyingTo.content}
+                          </span>
+                        </>
+                      ) : isReplyPoll ? (
+                        <>
+                          <BarChart3 className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+                          <span className="truncate">
+                            {replyingTo.poll?.question || replyingTo.content}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="truncate">{replyingTo.content}</span>
+                      )}
+                    </div>
+                  </div>
+                  {isReplyImage && replyImgUrl && (
+                    <img
+                      src={replyImgUrl}
+                      alt="Thumbnail"
+                      className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
+                    />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyingTo(null)}
+                  className="p-1 rounded-md hover:bg-gray-200 text-gray-400 hover:text-gray-600 ml-2 cursor-pointer shrink-0"
+                  title="Cancelar resposta"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setReplyingTo(null)}
-                className="p-1 rounded-md hover:bg-gray-200 text-gray-400 hover:text-gray-600 ml-2 cursor-pointer"
-                title="Cancelar resposta"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Attachment Preview Chip */}
           {attachment && (
