@@ -15,8 +15,13 @@ import {
   Easing,
   Alert,
   Image,
+  Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
 import type {
@@ -50,6 +55,15 @@ interface ContactItem {
   avatar_color?: string;
   status_text?: string;
   bio?: string;
+}
+
+interface PendingAttachment {
+  kind: 'image' | 'document' | 'audio';
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+  sizeFormatted: string;
+  uri?: string;
 }
 
 const AVATAR_COLOR_OPTIONS = [
@@ -148,7 +162,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     serverHost,
     sendAction,
     updateMobileProfile,
+    uploadAttachment,
   } = useWebSocketContext();
+
+  // Attachments & Media State
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
 
   // Navigation View: 'list' (WhatsApp chats/contacts list) or 'chat' (active conversation feed)
   const [currentView, setCurrentView] = useState<'list' | 'chat'>('list');
@@ -453,8 +475,140 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     }
   };
 
-  const handleSend = () => {
-    if (!inputText.trim()) return;
+  const handlePickImage = async () => {
+    setShowAttachmentMenu(false);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permissão Necessária', 'Precisamos de acesso às fotos para enviar imagens.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.85,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        let base64 = asset.base64;
+        const mimeType = asset.mimeType || 'image/jpeg';
+
+        if (!base64 && asset.uri) {
+          base64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+
+        if (!base64) {
+          Alert.alert('Erro', 'Não foi possível ler os dados da imagem selecionada.');
+          return;
+        }
+
+        const dataBase64 = `data:${mimeType};base64,${base64}`;
+        const fileName = asset.fileName || `foto_${Date.now()}.jpg`;
+        const sizeKb = Math.round((base64.length * 0.75) / 1024);
+        const sizeFormatted = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
+
+        setPendingAttachment({
+          kind: 'image',
+          name: fileName,
+          mimeType,
+          dataBase64,
+          sizeFormatted,
+          uri: asset.uri,
+        });
+      }
+    } catch {
+      Alert.alert('Erro', 'Ocorreu um erro ao acessar a galeria de imagens.');
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    setShowAttachmentMenu(false);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permissão Necessária', 'Precisamos de acesso à câmera para tirar fotos.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        quality: 0.85,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        let base64 = asset.base64;
+        const mimeType = asset.mimeType || 'image/jpeg';
+
+        if (!base64 && asset.uri) {
+          base64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+
+        if (!base64) {
+          Alert.alert('Erro', 'Não foi possível ler os dados da foto capturada.');
+          return;
+        }
+
+        const dataBase64 = `data:${mimeType};base64,${base64}`;
+        const fileName = `camera_${Date.now()}.jpg`;
+        const sizeKb = Math.round((base64.length * 0.75) / 1024);
+        const sizeFormatted = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
+
+        setPendingAttachment({
+          kind: 'image',
+          name: fileName,
+          mimeType,
+          dataBase64,
+          sizeFormatted,
+          uri: asset.uri,
+        });
+      }
+    } catch {
+      Alert.alert('Erro na Câmera', 'Não foi possível capturar a foto.');
+    }
+  };
+
+  const handlePickDocument = async () => {
+    setShowAttachmentMenu(false);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        const base64 = await FileSystem.readAsStringAsync(file.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const mimeType = file.mimeType || 'application/octet-stream';
+        const dataBase64 = `data:${mimeType};base64,${base64}`;
+        const sizeKb = file.size ? Math.round(file.size / 1024) : Math.round((base64.length * 0.75) / 1024);
+        const sizeFormatted = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
+
+        setPendingAttachment({
+          kind: 'document',
+          name: file.name,
+          mimeType,
+          dataBase64,
+          sizeFormatted,
+          uri: file.uri,
+        });
+      }
+    } catch {
+      Alert.alert('Erro ao Escolher Documento', 'Não foi possível carregar o arquivo.');
+    }
+  };
+
+  const handleSend = async () => {
+    if (!inputText.trim() && !pendingAttachment) return;
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     sendTyping(false);
 
@@ -462,6 +616,32 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       editMessage(editingMessage.id, inputText.trim());
       setEditingMessage(null);
       setInputText('');
+      return;
+    }
+
+    if (pendingAttachment) {
+      setIsUploadingAttachment(true);
+      try {
+        const res = await uploadAttachment({
+          kind: pendingAttachment.kind,
+          file_name: pendingAttachment.name,
+          mime_type: pendingAttachment.mimeType,
+          data_base64: pendingAttachment.dataBase64,
+          caption: inputText.trim() || undefined,
+          reply_to_id: replyingTo?.id,
+        });
+        if (!res) {
+          Alert.alert('Erro ao Enviar', 'Não foi possível enviar o anexo. Tente novamente.');
+        } else {
+          setPendingAttachment(null);
+          setInputText('');
+          setReplyingTo(null);
+        }
+      } catch {
+        Alert.alert('Erro ao Enviar', 'Falha na conexão ao enviar o anexo.');
+      } finally {
+        setIsUploadingAttachment(false);
+      }
       return;
     }
 
@@ -685,6 +865,18 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       (r) => r.toLowerCase() !== item.nickname.toLowerCase()
     ).length;
 
+    const isImageAttachment = item.attachment?.kind === 'image' || item.type === 'image';
+    const isFileAttachment = item.attachment?.kind === 'document' || item.type === 'file';
+    const isVoiceAttachment = item.attachment?.kind === 'audio' || item.type === 'voice';
+
+    const attachmentUrl =
+      item.attachment?.data_url ||
+      (item.attachment?.url?.startsWith('http')
+        ? item.attachment.url
+        : item.attachment?.url
+        ? `http://${serverHost}${item.attachment.url}`
+        : null);
+
     if (isSystem || isGameCard) {
       return (
         <View style={[styles.systemMessageContainer, isGameCard && styles.gameCardMessageContainer]}>
@@ -857,6 +1049,155 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                   </>
                 );
               })()}
+            </View>
+          ) : isImageAttachment ? (
+            <View style={styles.attachmentImageContainer}>
+              {attachmentUrl && (
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => setFullscreenImageUri(attachmentUrl)}
+                  style={styles.imageBubbleWrapper}
+                >
+                  <Image
+                    source={{ uri: attachmentUrl }}
+                    style={styles.messageImage}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.imageOverlayBadge}>
+                    <Ionicons name="expand-outline" size={13} color="#FFF" />
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {item.content && !item.content.startsWith('Imagem: ') ? (
+                <Text
+                  style={[
+                    styles.messageText,
+                    isMe ? styles.myMessageText : styles.otherMessageText,
+                    { marginTop: 6 },
+                  ]}
+                >
+                  {item.content}
+                </Text>
+              ) : null}
+
+              {item.attachment && (
+                <View style={styles.attachmentMetaRow}>
+                  <Ionicons name="image-outline" size={12} color={isMe ? '#2E7D32' : '#868E96'} />
+                  <Text
+                    style={[styles.attachmentMetaText, isMe && { color: '#2E7D32' }]}
+                    numberOfLines={1}
+                  >
+                    {item.attachment.file_name} • {(item.attachment.size_bytes / 1024).toFixed(0)} KB
+                  </Text>
+                  {item.attachment.sha256 ? (
+                    <Text style={[styles.attachmentShaText, isMe && { color: '#388E3C' }]}>
+                      SHA:{item.attachment.sha256.slice(0, 6)}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+            </View>
+          ) : isFileAttachment ? (
+            <View style={styles.attachmentFileContainer}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={[
+                  styles.fileCard,
+                  isMe ? styles.fileCardMe : styles.fileCardOther,
+                ]}
+                onPress={() => {
+                  if (attachmentUrl) {
+                    Linking.openURL(attachmentUrl).catch(() => {
+                      Alert.alert(
+                        item.attachment?.file_name || 'Arquivo',
+                        `Tamanho: ${((item.attachment?.size_bytes || 0) / 1024).toFixed(1)} KB\nSHA256: ${item.attachment?.sha256 || 'N/A'}`
+                      );
+                    });
+                  }
+                }}
+              >
+                <View style={[styles.fileIconBox, isMe && { backgroundColor: '#C8E6C9' }]}>
+                  <Ionicons
+                    name="document-text"
+                    size={20}
+                    color={isMe ? '#2E7D32' : colors.brand.primary}
+                  />
+                </View>
+                <View style={{ flex: 1, marginHorizontal: 8 }}>
+                  <Text
+                    style={[styles.fileNameText, isMe && { color: '#1B5E20' }]}
+                    numberOfLines={1}
+                  >
+                    {item.attachment?.file_name || 'Documento'}
+                  </Text>
+                  <Text style={[styles.fileSubText, isMe && { color: '#388E3C' }]}>
+                    {item.attachment
+                      ? `${(item.attachment.size_bytes / 1024).toFixed(1)} KB`
+                      : 'Arquivo'}
+                    {item.attachment?.sha256
+                      ? ` • SHA:${item.attachment.sha256.slice(0, 6)}`
+                      : ''}
+                  </Text>
+                </View>
+                <View style={styles.fileDownloadBtn}>
+                  <Ionicons
+                    name="arrow-down-circle"
+                    size={20}
+                    color={isMe ? '#2E7D32' : colors.brand.primary}
+                  />
+                </View>
+              </TouchableOpacity>
+
+              {item.content && !item.content.startsWith('Arquivo: ') ? (
+                <Text
+                  style={[
+                    styles.messageText,
+                    isMe ? styles.myMessageText : styles.otherMessageText,
+                    { marginTop: 6 },
+                  ]}
+                >
+                  {item.content}
+                </Text>
+              ) : null}
+            </View>
+          ) : isVoiceAttachment ? (
+            <View style={styles.voiceNoteContainer}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={[
+                  styles.voicePlayBtn,
+                  isMe && { backgroundColor: '#2E7D32' },
+                ]}
+                onPress={() => {
+                  setPlayingAudioId((prev) => (prev === item.id ? null : item.id));
+                }}
+              >
+                <Ionicons
+                  name={playingAudioId === item.id ? 'pause' : 'play'}
+                  size={15}
+                  color="#FFF"
+                />
+              </TouchableOpacity>
+              <View style={styles.waveformContainer}>
+                {(item.attachment?.waveform || [30, 60, 45, 80, 50, 95, 40, 70, 85, 55, 65, 40, 75, 50, 30]).map((h, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.waveformBar,
+                      { height: Math.max(6, Math.min(24, Math.round(h * 0.24))) },
+                      isMe
+                        ? { backgroundColor: playingAudioId === item.id ? '#1B5E20' : '#81C784' }
+                        : { backgroundColor: playingAudioId === item.id ? colors.brand.primary : '#A29BFE' },
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={[styles.voiceDurationText, isMe && { color: '#2E7D32' }]}>
+                {item.attachment?.duration_seconds
+                  ? `${Math.floor(item.attachment.duration_seconds / 60)}:${(item.attachment.duration_seconds % 60).toString().padStart(2, '0')}`
+                  : '0:15'}
+              </Text>
             </View>
           ) : (
             <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.otherMessageText]}>
@@ -1667,27 +2008,78 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           </View>
         )}
 
+        {/* Pending Attachment Preview Bar */}
+        {pendingAttachment && (
+          <View style={styles.pendingAttachmentCard}>
+            {pendingAttachment.kind === 'image' && pendingAttachment.uri ? (
+              <Image source={{ uri: pendingAttachment.uri }} style={styles.pendingImageThumbnail} />
+            ) : (
+              <View style={styles.pendingFileIcon}>
+                <Ionicons
+                  name={pendingAttachment.kind === 'image' ? 'image' : 'document-text'}
+                  size={20}
+                  color={colors.brand.primary}
+                />
+              </View>
+            )}
+            <View style={{ flex: 1, marginHorizontal: 8 }}>
+              <Text style={styles.pendingFileName} numberOfLines={1}>
+                {pendingAttachment.name}
+              </Text>
+              <Text style={styles.pendingFileSize}>
+                {pendingAttachment.sizeFormatted} • Toque em Enviar para compartilhar
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setPendingAttachment(null)}
+              style={styles.pendingRemoveBtn}
+            >
+              <Ionicons name="close-circle" size={20} color="#FF7675" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Message Input Bar */}
         <View style={styles.inputContainer}>
           <TouchableOpacity
-            style={styles.pollTriggerBtn}
-            onPress={() => setShowCreatePollModal(true)}
+            style={styles.attachTriggerBtn}
+            onPress={() => setShowAttachmentMenu(true)}
+            activeOpacity={0.7}
           >
-            <Text style={styles.pollTriggerBtnText}>Enquete</Text>
+            <Ionicons name="add" size={22} color={colors.brand.primary} />
           </TouchableOpacity>
+
           <TextInput
             style={styles.textInput}
             value={inputText}
             onChangeText={handleInputChange}
             placeholder={
-              editingMessage
+              isUploadingAttachment
+                ? 'Enviando anexo...'
+                : pendingAttachment
+                ? 'Adicionar legenda ao anexo...'
+                : editingMessage
                 ? 'Edite sua mensagem...'
                 : `Conversar como ${nickname}...`
             }
             placeholderTextColor="#888"
+            editable={!isUploadingAttachment}
           />
-          <TouchableOpacity style={styles.sendButton} onPress={handleSend} activeOpacity={0.8}>
-            <Text style={styles.sendButtonText}>{editingMessage ? 'Salvar' : 'Enviar'}</Text>
+
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              (!inputText.trim() && !pendingAttachment) && styles.sendButtonDisabled,
+            ]}
+            onPress={handleSend}
+            activeOpacity={0.8}
+            disabled={(!inputText.trim() && !pendingAttachment) || isUploadingAttachment}
+          >
+            {isUploadingAttachment ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Ionicons name="send" size={16} color="#FFF" />
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -2247,6 +2639,120 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 <Text style={styles.closeModalBtnText}>Fechar</Text>
               </TouchableOpacity>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL: ATTACHMENT MENU */}
+      <Modal
+        visible={showAttachmentMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAttachmentMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.actionSheetBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowAttachmentMenu(false)}
+        >
+          <View style={styles.actionSheetContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.actionSheetHandle} />
+            <Text style={styles.attachmentSheetTitle}>Compartilhar no Chat</Text>
+
+            <View style={styles.attachmentGrid}>
+              <TouchableOpacity
+                style={styles.attachmentTile}
+                onPress={handlePickImage}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.attachmentTileIconBox, { backgroundColor: '#F0EFFE' }]}>
+                  <Ionicons name="images" size={24} color={colors.brand.primary} />
+                </View>
+                <Text style={styles.attachmentTileLabel}>Galeria</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.attachmentTile}
+                onPress={handleTakePhoto}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.attachmentTileIconBox, { backgroundColor: '#FFE5E5' }]}>
+                  <Ionicons name="camera" size={24} color={colors.brand.action} />
+                </View>
+                <Text style={styles.attachmentTileLabel}>Câmera</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.attachmentTile}
+                onPress={handlePickDocument}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.attachmentTileIconBox, { backgroundColor: '#E0F9F8' }]}>
+                  <Ionicons name="document-text" size={24} color="#00CEC9" />
+                </View>
+                <Text style={styles.attachmentTileLabel}>Documento</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.attachmentTile}
+                onPress={() => {
+                  setShowAttachmentMenu(false);
+                  setShowCreatePollModal(true);
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.attachmentTileIconBox, { backgroundColor: '#FFF5DB' }]}>
+                  <Ionicons name="bar-chart" size={24} color="#FDCB6E" />
+                </View>
+                <Text style={styles.attachmentTileLabel}>Enquete</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.actionSheetCancelBtn}
+              activeOpacity={0.8}
+              onPress={() => setShowAttachmentMenu(false)}
+            >
+              <Text style={styles.actionSheetCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* MODAL: FULLSCREEN IMAGE VIEWER */}
+      <Modal
+        visible={Boolean(fullscreenImageUri)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFullscreenImageUri(null)}
+      >
+        <View style={styles.fullscreenBackdrop}>
+          <SafeAreaView style={styles.fullscreenHeader}>
+            <TouchableOpacity
+              style={styles.fullscreenCloseBtn}
+              onPress={() => setFullscreenImageUri(null)}
+            >
+              <Ionicons name="close" size={24} color="#FFF" />
+            </TouchableOpacity>
+            <Text style={styles.fullscreenTitle}>Imagem Anexada</Text>
+            <TouchableOpacity
+              style={styles.fullscreenActionBtn}
+              onPress={() => {
+                if (fullscreenImageUri) Linking.openURL(fullscreenImageUri);
+              }}
+            >
+              <Ionicons name="open-outline" size={20} color="#FFF" />
+            </TouchableOpacity>
+          </SafeAreaView>
+
+          <View style={styles.fullscreenImageContainer}>
+            {fullscreenImageUri && (
+              <Image
+                source={{ uri: fullscreenImageUri }}
+                style={styles.fullscreenImage}
+                resizeMode="contain"
+              />
+            )}
           </View>
         </View>
       </Modal>
@@ -3590,5 +4096,237 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     color: colors.brand.action,
+  },
+  attachmentImageContainer: {
+    marginTop: 2,
+    marginBottom: 2,
+    maxWidth: 240,
+  },
+  imageBubbleWrapper: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#E2E8F0',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  messageImage: {
+    width: 220,
+    height: 160,
+  },
+  imageOverlayBadge: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 5,
+  },
+  attachmentMetaText: {
+    fontSize: 10,
+    color: '#868E96',
+    flex: 1,
+  },
+  attachmentShaText: {
+    fontSize: 9,
+    color: '#A0AEC0',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  attachmentFileContainer: {
+    marginVertical: 2,
+    minWidth: 200,
+    maxWidth: 240,
+  },
+  fileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  fileCardMe: {
+    backgroundColor: '#D7F5CA',
+    borderColor: '#BCE8AB',
+  },
+  fileCardOther: {
+    backgroundColor: '#F8F9FA',
+    borderColor: '#E9ECEF',
+  },
+  fileIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F0EFFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileNameText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2D3436',
+  },
+  fileSubText: {
+    fontSize: 10,
+    color: '#868E96',
+    marginTop: 2,
+  },
+  fileDownloadBtn: {
+    padding: 4,
+  },
+  voiceNoteContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    gap: 8,
+    minWidth: 180,
+    maxWidth: 240,
+  },
+  voicePlayBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.brand.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  waveformContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flex: 1,
+    height: 28,
+  },
+  waveformBar: {
+    width: 3,
+    borderRadius: 2,
+  },
+  voiceDurationText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.brand.primary,
+  },
+  pendingAttachmentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    marginHorizontal: 10,
+    marginBottom: 4,
+    backgroundColor: '#F0EFFE',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DCD6F7',
+  },
+  pendingImageThumbnail: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+  },
+  pendingFileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingFileName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.brand.primary,
+  },
+  pendingFileSize: {
+    fontSize: 10,
+    color: '#636E72',
+    marginTop: 1,
+  },
+  pendingRemoveBtn: {
+    padding: 4,
+  },
+  attachTriggerBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F0EFFE',
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
+  attachmentSheetTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#2D3436',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  attachmentGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+    paddingHorizontal: 8,
+  },
+  attachmentTile: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  attachmentTileIconBox: {
+    width: 56,
+    height: 56,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentTileLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#495057',
+  },
+  fullscreenBackdrop: {
+    flex: 1,
+    backgroundColor: '#0A0C16',
+  },
+  fullscreenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E2337',
+  },
+  fullscreenCloseBtn: {
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20,
+  },
+  fullscreenActionBtn: {
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20,
+  },
+  fullscreenTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+  fullscreenImageContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  fullscreenImage: {
+    width: '100%',
+    height: '100%',
   },
 });
