@@ -14,6 +14,7 @@ import {
   Animated,
   Easing,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useWebSocketContext } from '../context/WebSocketContext';
@@ -37,15 +38,48 @@ interface RoomItem {
   created_at?: string;
   last_message?: string;
   last_message_at?: string;
+  avatar_url?: string;
+  avatar_color?: string;
 }
 
 interface ContactItem {
   id: string;
   nickname: string;
   email: string;
+  avatar_url?: string;
   avatar_color?: string;
   status_text?: string;
+  bio?: string;
 }
+
+const AVATAR_COLOR_OPTIONS = [
+  { id: 'violet', bg: '#6C5CE7', label: 'Violeta' },
+  { id: 'coral', bg: '#FF7675', label: 'Coral' },
+  { id: 'mint', bg: '#00CEC9', label: 'Menta' },
+  { id: 'amber', bg: '#F59E0B', label: 'Âmbar' },
+  { id: 'blue', bg: '#3B82F6', label: 'Azul' },
+  { id: 'emerald', bg: '#10B981', label: 'Esmeralda' },
+  { id: 'indigo', bg: '#6366F1', label: 'Índigo' },
+  { id: 'slate', bg: '#475569', label: 'Grafite' },
+];
+
+const AVATAR_PRESETS = [
+  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=160&q=80',
+  'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=160&q=80',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=160&q=80',
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=160&q=80',
+  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=160&q=80',
+  'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=160&q=80',
+];
+
+const STATUS_PRESETS = [
+  'Disponível no PORChat',
+  'Pronto para o Debate',
+  'Online no mobile',
+  'No comando da TV',
+  'Modo Focado',
+  'Apenas Ouvindo',
+];
 
 const POLL_PALETTE = [
   { fill: '#FFEAE8', border: '#FF6B6B', text: '#D63031', bar: '#FF7675' }, // Option A (Coral)
@@ -108,6 +142,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     roomUpdate,
     nickname,
     setNickname,
+    userProfile,
     roomId,
     setRoomId,
     serverHost,
@@ -143,6 +178,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const [tempNick, setTempNick] = useState(nickname);
   const [tempStatus, setTempStatus] = useState('Disponível no PORChat');
   const [tempBio, setTempBio] = useState('');
+  const [tempAvatarColor, setTempAvatarColor] = useState('#6C5CE7');
+  const [tempAvatarUrl, setTempAvatarUrl] = useState('');
+
+  // In-Chat Search State
+  const [isChatSearchActive, setIsChatSearchActive] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+
+  // Room Info Modal State
+  const [showRoomInfoModal, setShowRoomInfoModal] = useState(false);
 
   // Room PIN Form
   const [roomPin, setRoomPin] = useState('');
@@ -184,6 +228,63 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
     return palette[Math.abs(hash) % palette.length];
+  };
+
+  const renderAvatar = (
+    name: string,
+    color?: string,
+    avatarUrl?: string | null,
+    size: number = 40,
+    rounded: boolean = true
+  ) => {
+    const monogram = (name || '?')
+      .trim()
+      .split(' ')
+      .filter(Boolean)
+      .map((p) => p[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+    const bg = color || getAvatarBgColor(name);
+    const radius = rounded ? size / 2 : 12;
+
+    if (avatarUrl && avatarUrl.trim().startsWith('http')) {
+      return (
+        <Image
+          source={{ uri: avatarUrl.trim() }}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: radius,
+            backgroundColor: '#E2E8F0',
+          }}
+        />
+      );
+    }
+
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          backgroundColor: bg,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text
+          style={{
+            color: '#FFFFFF',
+            fontSize: Math.max(10, Math.floor(size * 0.38)),
+            fontWeight: '800',
+            letterSpacing: 0.5,
+          }}
+        >
+          {monogram}
+        </Text>
+      </View>
+    );
   };
 
   // Fetch Rooms & Contacts
@@ -596,12 +697,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
     return (
       <View style={[styles.messageWrapper, isMe ? styles.myMessageWrapper : styles.otherMessageWrapper]}>
-        {!isMe && <Text style={styles.senderName}>{item.nickname}</Text>}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onLongPress={() => setSelectedMessageForActions(item)}
-          style={[styles.bubble, isMe ? styles.myBubble : styles.otherBubble]}
-        >
+        <View style={!isMe ? styles.messageWithAvatarRow : undefined}>
+          {!isMe && renderAvatar(item.nickname, undefined, undefined, 30)}
+          <View style={!isMe ? styles.messageContentCol : undefined}>
+            {!isMe && <Text style={styles.senderName}>{item.nickname}</Text>}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onLongPress={() => setSelectedMessageForActions(item)}
+              style={[styles.bubble, isMe ? styles.myBubble : styles.otherBubble]}
+            >
           {/* Reply Preview */}
           {item.reply_preview && (
             <View style={styles.replyPreviewBox}>
@@ -830,6 +934,8 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             })}
           </View>
         )}
+          </View>
+        </View>
       </View>
     );
   };
@@ -862,10 +968,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               style={styles.profileBtn}
               onPress={() => {
                 setTempNick(nickname);
+                setTempStatus(userProfile?.status_text || 'Disponível no PORChat');
+                setTempBio(userProfile?.bio || '');
+                setTempAvatarColor(userProfile?.avatar_color || '#6C5CE7');
+                setTempAvatarUrl(userProfile?.avatar_url || '');
                 setShowProfileModal(true);
               }}
               activeOpacity={0.8}
             >
+              {renderAvatar(nickname, userProfile?.avatar_color, userProfile?.avatar_url, 26)}
               <Text style={styles.profileBtnText}>{nickname}</Text>
             </TouchableOpacity>
 
@@ -940,11 +1051,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                 onPress={() => handleStartDirectChat(item)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.chatAvatar, { backgroundColor: item.avatar_color || getAvatarBgColor(item.id || item.nickname) }]}>
-                  <Text style={styles.chatAvatarText}>
-                    {item.nickname.slice(0, 2).toUpperCase()}
-                  </Text>
-                </View>
+                {renderAvatar(item.nickname, item.avatar_color, item.avatar_url, 44, false)}
                 <View style={styles.chatInfo}>
                   <View style={styles.chatTitleRow}>
                     <Text style={styles.chatName}>{item.nickname}</Text>
@@ -984,16 +1091,13 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                   onPress={() => handleSelectRoom(item)}
                   activeOpacity={0.7}
                 >
-                  <View
-                    style={[
-                      styles.chatAvatar,
-                      { backgroundColor: isGroup ? colors.brand.primary : getAvatarBgColor(item.id) },
-                    ]}
-                  >
-                    <Text style={styles.chatAvatarText}>
-                      {item.name.slice(0, 2).toUpperCase()}
-                    </Text>
-                  </View>
+                  {renderAvatar(
+                    item.name,
+                    isGroup ? colors.brand.primary : getAvatarBgColor(item.id),
+                    item.avatar_url,
+                    44,
+                    false
+                  )}
                   <View style={styles.chatInfo}>
                     <View style={styles.chatTitleRow}>
                       <Text style={styles.chatName} numberOfLines={1}>
@@ -1114,59 +1218,182 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           onRequestClose={() => setShowProfileModal(false)}
         >
           <View style={styles.modalBackdrop}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Perfil & Conta</Text>
-              <Text style={styles.modalSubtitle}>
-                Personalize seu apelido, recado de status e biografia:
-              </Text>
+            <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+              <View style={styles.profileModalHeader}>
+                <Text style={styles.modalTitle}>Perfil & Conta</Text>
+                <TouchableOpacity
+                  style={styles.profileCloseIconBtn}
+                  onPress={() => setShowProfileModal(false)}
+                >
+                  <Ionicons name="close" size={20} color="#636E72" />
+                </TouchableOpacity>
+              </View>
 
-              <TextInput
-                style={[styles.modalInput, { marginTop: 8 }]}
-                value={tempNick}
-                onChangeText={setTempNick}
-                placeholder="Apelido..."
-                placeholderTextColor="#999"
-              />
-
-              <TextInput
-                style={styles.modalInput}
-                value={tempStatus}
-                onChangeText={setTempStatus}
-                placeholder="Status (ex: Pronto para o Debate)"
-                placeholderTextColor="#999"
-              />
-
-              <TextInput
-                style={styles.modalInput}
-                value={tempBio}
-                onChangeText={setTempBio}
-                placeholder="Biografia curta..."
-                placeholderTextColor="#999"
-              />
-
-              <TouchableOpacity
-                style={styles.primaryModalBtn}
-                onPress={async () => {
-                  if (tempNick.trim()) {
-                    await updateMobileProfile({
-                      nickname: tempNick.trim(),
-                      status_text: tempStatus.trim(),
-                      bio: tempBio.trim(),
-                    });
-                    setNickname(tempNick.trim());
-                    setShowProfileModal(false);
-                  }
-                }}
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 16 }}
               >
-                <Text style={styles.primaryModalBtnText}>Salvar Perfil</Text>
-              </TouchableOpacity>
+                {/* Live Avatar Preview */}
+                <View style={styles.avatarPreviewContainer}>
+                  {renderAvatar(tempNick || nickname, tempAvatarColor, tempAvatarUrl, 84)}
+                  <View style={styles.avatarPreviewBadge}>
+                    <Ionicons name="camera" size={14} color="#FFF" />
+                  </View>
+                </View>
 
-              <TouchableOpacity
-                style={styles.closeModalBtn}
-                onPress={() => setShowProfileModal(false)}
-              >
-                <Text style={styles.closeModalBtnText}>Fechar</Text>
-              </TouchableOpacity>
+                {/* Preset Avatars Row */}
+                <Text style={styles.profileSectionLabel}>Fotos de Perfil Sugeridas:</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.avatarPresetsScroll}
+                >
+                  {AVATAR_PRESETS.map((presetUrl, idx) => {
+                    const isSelected = tempAvatarUrl === presetUrl;
+                    return (
+                      <TouchableOpacity
+                        key={idx}
+                        activeOpacity={0.8}
+                        onPress={() => setTempAvatarUrl(presetUrl)}
+                        style={[
+                          styles.presetAvatarBtn,
+                          isSelected && styles.presetAvatarBtnActive,
+                        ]}
+                      >
+                        <Image source={{ uri: presetUrl }} style={styles.presetAvatarImg} />
+                        {isSelected && (
+                          <View style={styles.presetCheckOverlay}>
+                            <Ionicons name="checkmark" size={16} color="#FFF" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Custom Photo URL Input */}
+                <View style={styles.customUrlInputRow}>
+                  <TextInput
+                    style={[styles.modalInput, { flex: 1, marginBottom: 0, fontSize: 12 }]}
+                    value={tempAvatarUrl}
+                    onChangeText={setTempAvatarUrl}
+                    placeholder="Ou cole a URL da foto (https://...)"
+                    placeholderTextColor="#999"
+                    autoCapitalize="none"
+                  />
+                  {Boolean(tempAvatarUrl) && (
+                    <TouchableOpacity
+                      style={styles.clearPhotoBtn}
+                      onPress={() => setTempAvatarUrl('')}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="#FF7675" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Avatar Color Picker */}
+                <Text style={styles.profileSectionLabel}>Cor do Monograma / Fundo:</Text>
+                <View style={styles.colorPaletteGrid}>
+                  {AVATAR_COLOR_OPTIONS.map((c) => {
+                    const isSelected = tempAvatarColor.toLowerCase() === c.bg.toLowerCase();
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        activeOpacity={0.8}
+                        onPress={() => setTempAvatarColor(c.bg)}
+                        style={[
+                          styles.colorCircle,
+                          { backgroundColor: c.bg },
+                          isSelected && styles.colorCircleActive,
+                        ]}
+                      >
+                        {isSelected && <Ionicons name="checkmark" size={16} color="#FFF" />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Nickname Input */}
+                <Text style={styles.profileSectionLabel}>Apelido no Chat:</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={tempNick}
+                  onChangeText={setTempNick}
+                  placeholder="Seu apelido..."
+                  placeholderTextColor="#999"
+                />
+
+                {/* Status Message & Presets */}
+                <Text style={styles.profileSectionLabel}>Recado de Status:</Text>
+                <View style={styles.statusPresetsRow}>
+                  {STATUS_PRESETS.map((pst, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[
+                        styles.statusPresetPill,
+                        tempStatus === pst && styles.statusPresetPillActive,
+                      ]}
+                      onPress={() => setTempStatus(pst)}
+                      activeOpacity={0.75}
+                    >
+                      <Text
+                        style={[
+                          styles.statusPresetPillText,
+                          tempStatus === pst && styles.statusPresetPillTextActive,
+                        ]}
+                      >
+                        {pst}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TextInput
+                  style={styles.modalInput}
+                  value={tempStatus}
+                  onChangeText={setTempStatus}
+                  placeholder="Status personalizado..."
+                  placeholderTextColor="#999"
+                />
+
+                {/* Bio Input */}
+                <Text style={styles.profileSectionLabel}>Biografia Curta:</Text>
+                <TextInput
+                  style={[styles.modalInput, styles.bioInput]}
+                  value={tempBio}
+                  onChangeText={setTempBio}
+                  placeholder="Compartilhe algo sobre você..."
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={2}
+                />
+
+                <TouchableOpacity
+                  style={styles.primaryModalBtn}
+                  onPress={async () => {
+                    if (tempNick.trim()) {
+                      await updateMobileProfile({
+                        nickname: tempNick.trim(),
+                        avatar_color: tempAvatarColor,
+                        avatar_url: tempAvatarUrl.trim(),
+                        status_text: tempStatus.trim(),
+                        bio: tempBio.trim(),
+                      });
+                      setNickname(tempNick.trim());
+                      setShowProfileModal(false);
+                      fetchData();
+                    }
+                  }}
+                >
+                  <Text style={styles.primaryModalBtnText}>Salvar Perfil</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.closeModalBtn}
+                  onPress={() => setShowProfileModal(false)}
+                >
+                  <Text style={styles.closeModalBtnText}>Cancelar</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -1228,25 +1455,60 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       <View style={styles.chatViewHeader}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => setCurrentView('list')}
+          onPress={() => {
+            setIsChatSearchActive(false);
+            setChatSearchQuery('');
+            setCurrentView('list');
+          }}
           activeOpacity={0.7}
         >
-          <Text style={styles.backButtonText}>{'< Conversas'}</Text>
+          <Ionicons name="chevron-back" size={24} color={colors.brand.primary} />
         </TouchableOpacity>
 
-        <View style={styles.chatViewTitleBlock}>
-          <Text style={styles.chatViewRoomName} numberOfLines={1}>
-            {currentRoomInfo?.name || 'Chat da Sala'}
-          </Text>
-          <Text style={styles.chatViewSubtitle} numberOfLines={1}>
-            {isCurrentGroup
-              ? `${currentRoomInfo?.members?.join(', ') || 'Participantes'}`
-              : 'Conversa Direta'}
-          </Text>
-        </View>
+        <TouchableOpacity
+          style={styles.chatViewTitleBlock}
+          onPress={() => setShowRoomInfoModal(true)}
+          activeOpacity={0.8}
+        >
+          {renderAvatar(
+            currentRoomInfo?.name || 'Chat',
+            isCurrentGroup ? colors.brand.primary : getAvatarBgColor(roomId),
+            currentRoomInfo?.avatar_url,
+            36,
+            false
+          )}
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <Text style={styles.chatViewRoomName} numberOfLines={1}>
+              {currentRoomInfo?.name || 'Chat da Sala'}
+            </Text>
+            <Text style={styles.chatViewSubtitle} numberOfLines={1}>
+              {isCurrentGroup
+                ? `${currentRoomInfo?.members?.length || 0} participantes • Toque p/ info`
+                : 'Conversa Direta • Toque p/ info'}
+            </Text>
+          </View>
+        </TouchableOpacity>
 
-        {/* Quick Launch Game & Leaderboard Actions */}
+        {/* Quick Launch Game, Search & Leaderboard Actions */}
         <View style={styles.chatViewActions}>
+          <TouchableOpacity
+            style={[
+              styles.headerSearchIconBtn,
+              isChatSearchActive && styles.headerSearchIconBtnActive,
+            ]}
+            onPress={() => {
+              setIsChatSearchActive((prev) => !prev);
+              if (isChatSearchActive) setChatSearchQuery('');
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={isChatSearchActive ? 'close' : 'search-outline'}
+              size={18}
+              color={isChatSearchActive ? '#FFF' : colors.ink.main}
+            />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={[styles.gameActionMiniBtn, { backgroundColor: '#F3E8FF' }]}
             onPress={() => {
@@ -1292,6 +1554,26 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         </View>
       </View>
 
+      {/* In-Chat Search Bar */}
+      {isChatSearchActive && (
+        <View style={styles.inChatSearchBar}>
+          <Ionicons name="search" size={16} color="#868E96" style={{ marginRight: 8 }} />
+          <TextInput
+            style={styles.inChatSearchInput}
+            value={chatSearchQuery}
+            onChangeText={setChatSearchQuery}
+            placeholder="Buscar mensagens na conversa..."
+            placeholderTextColor="#888"
+            autoFocus
+          />
+          {Boolean(chatSearchQuery) && (
+            <TouchableOpacity onPress={() => setChatSearchQuery('')} style={{ padding: 4 }}>
+              <Ionicons name="close-circle" size={18} color="#868E96" />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {/* Pinned Message Banner */}
       {pinnedMessage && (
         <View style={styles.pinnedBanner}>
@@ -1316,17 +1598,35 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       >
         <FlatList
           ref={flatListRef}
-          data={messages}
+          data={
+            chatSearchQuery.trim()
+              ? messages.filter(
+                  (m) =>
+                    (m.content && m.content.toLowerCase().includes(chatSearchQuery.toLowerCase())) ||
+                    (m.nickname && m.nickname.toLowerCase().includes(chatSearchQuery.toLowerCase()))
+                )
+              : messages
+          }
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           contentContainerStyle={styles.messageList}
           ListEmptyComponent={
-            <View style={styles.emptyMessagesContainer}>
-              <Text style={styles.emptyMessagesTitle}>Nenhuma mensagem ainda</Text>
-              <Text style={styles.emptyMessagesSubtitle}>
-                Envie uma mensagem, crie uma enquete ou inicie uma partida!
-              </Text>
-            </View>
+            chatSearchQuery.trim() ? (
+              <View style={styles.emptyMessagesContainer}>
+                <Ionicons name="search-outline" size={32} color="#CED4DA" />
+                <Text style={styles.emptyMessagesTitle}>Nenhuma mensagem encontrada</Text>
+                <Text style={styles.emptyMessagesSubtitle}>
+                  Não encontramos nada com o termo "{chatSearchQuery}".
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.emptyMessagesContainer}>
+                <Text style={styles.emptyMessagesTitle}>Nenhuma mensagem ainda</Text>
+                <Text style={styles.emptyMessagesSubtitle}>
+                  Envie uma mensagem, crie uma enquete ou inicie uma partida!
+                </Text>
+              </View>
+            )
           }
           ListFooterComponent={
             Object.keys(typingUsers).length > 0 ? (
@@ -1862,6 +2162,93 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* MODAL: ROOM / GROUP INFO */}
+      <Modal
+        visible={showRoomInfoModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRoomInfoModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxHeight: '85%' }]}>
+            <View style={styles.profileModalHeader}>
+              <Text style={styles.modalTitle}>Informações da Sala</Text>
+              <TouchableOpacity
+                style={styles.profileCloseIconBtn}
+                onPress={() => setShowRoomInfoModal(false)}
+              >
+                <Ionicons name="close" size={20} color="#636E72" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.roomInfoHero}>
+                {renderAvatar(
+                  currentRoomInfo?.name || 'Chat',
+                  isCurrentGroup ? colors.brand.primary : getAvatarBgColor(roomId),
+                  currentRoomInfo?.avatar_url,
+                  68,
+                  false
+                )}
+                <Text style={styles.roomInfoName}>{currentRoomInfo?.name || 'Sala'}</Text>
+                <Text style={styles.roomInfoDesc}>
+                  {currentRoomInfo?.description || 'Sala de conversa em tempo real e jogos sincrônicos no PORChat.'}
+                </Text>
+              </View>
+
+              {/* PIN Code Box */}
+              {Boolean(currentRoomInfo?.code) && (
+                <View style={styles.roomPinBox}>
+                  <View>
+                    <Text style={styles.roomPinLabel}>Código PIN da Sala</Text>
+                    <Text style={styles.roomPinValue}>{currentRoomInfo?.code}</Text>
+                  </View>
+                  <View style={styles.pinTagBadge}>
+                    <Text style={styles.pinTagText}>Compartilhe com amigos</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Members List */}
+              <Text style={styles.profileSectionLabel}>
+                Participantes ({currentRoomInfo?.members?.length || 1}):
+              </Text>
+              <View style={styles.roomMembersContainer}>
+                {(currentRoomInfo?.members || [nickname]).map((memName, idx) => {
+                  const isUserMe = memName.toLowerCase() === nickname.toLowerCase();
+                  const isAdmin = currentRoomInfo?.admins?.includes(memName);
+                  return (
+                    <View key={idx} style={styles.roomMemberRow}>
+                      {renderAvatar(memName, undefined, undefined, 34)}
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={styles.roomMemberName}>
+                          {memName} {isUserMe ? '(Você)' : ''}
+                        </Text>
+                        <Text style={styles.roomMemberRole}>
+                          {isAdmin ? 'Administrador da sala' : 'Membro'}
+                        </Text>
+                      </View>
+                      {isAdmin && (
+                        <View style={styles.adminBadge}>
+                          <Text style={styles.adminBadgeText}>Admin</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+
+              <TouchableOpacity
+                style={styles.closeModalBtn}
+                onPress={() => setShowRoomInfoModal(false)}
+              >
+                <Text style={styles.closeModalBtnText}>Fechar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -2956,5 +3343,252 @@ const styles = StyleSheet.create({
     color: '#868E96',
     textAlign: 'center',
     maxWidth: 240,
+  },
+  messageWithAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  messageContentCol: {
+    flex: 1,
+  },
+  profileModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  profileCloseIconBtn: {
+    padding: 6,
+    borderRadius: 12,
+    backgroundColor: '#F1F3F5',
+  },
+  avatarPreviewContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    position: 'relative',
+  },
+  avatarPreviewBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: '36%',
+    backgroundColor: colors.brand.primary,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFF',
+  },
+  profileSectionLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#2D3436',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  avatarPresetsScroll: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 4,
+  },
+  presetAvatarBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'transparent',
+    position: 'relative',
+  },
+  presetAvatarBtnActive: {
+    borderColor: colors.brand.primary,
+  },
+  presetAvatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  presetCheckOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(108, 92, 231, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customUrlInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  clearPhotoBtn: {
+    padding: 10,
+    backgroundColor: '#FFE3E3',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  colorPaletteGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 8,
+  },
+  colorCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  colorCircleActive: {
+    borderWidth: 3,
+    borderColor: '#2D3436',
+  },
+  statusPresetsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+  },
+  statusPresetPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#F1F3F5',
+    borderRadius: 12,
+  },
+  statusPresetPillActive: {
+    backgroundColor: '#EFEBFD',
+    borderWidth: 1,
+    borderColor: colors.brand.primary,
+  },
+  statusPresetPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#495057',
+  },
+  statusPresetPillTextActive: {
+    color: colors.brand.primary,
+    fontWeight: '800',
+  },
+  bioInput: {
+    height: 60,
+    textAlignVertical: 'top',
+    paddingTop: 8,
+  },
+  inChatSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EBEBEB',
+  },
+  inChatSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#2D3436',
+  },
+  headerSearchIconBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F1F3F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerSearchIconBtnActive: {
+    backgroundColor: colors.brand.primary,
+  },
+  roomInfoHero: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  roomInfoName: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#2D3436',
+    marginTop: 10,
+  },
+  roomInfoDesc: {
+    fontSize: 12,
+    color: '#868E96',
+    textAlign: 'center',
+    marginTop: 4,
+    paddingHorizontal: 16,
+  },
+  roomPinBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0EFFE',
+    padding: 12,
+    borderRadius: 14,
+    marginVertical: 12,
+  },
+  roomPinLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.brand.primary,
+  },
+  roomPinValue: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.brand.primary,
+    letterSpacing: 1,
+    marginTop: 2,
+  },
+  pinTagBadge: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  pinTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.brand.primary,
+  },
+  roomMembersContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F1F3F5',
+    padding: 8,
+    marginBottom: 16,
+  },
+  roomMemberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8F9FA',
+  },
+  roomMemberName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2D3436',
+  },
+  roomMemberRole: {
+    fontSize: 11,
+    color: '#868E96',
+  },
+  adminBadge: {
+    backgroundColor: '#FFE3E3',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  adminBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.brand.action,
   },
 });
