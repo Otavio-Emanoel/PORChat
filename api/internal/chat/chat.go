@@ -31,6 +31,9 @@ type ReplyPreview struct {
 	ID       string `json:"id"`
 	Nickname string `json:"nickname"`
 	Content  string `json:"content"`
+	Type     string `json:"type,omitempty"`
+	MediaURL string `json:"media_url,omitempty"`
+	FileName string `json:"file_name,omitempty"`
 }
 
 type MessageAttachment struct {
@@ -517,10 +520,32 @@ func (s *RoomStore) AddMessage(msg *ChatMessage) {
 				if len(previewText) > 120 {
 					previewText = previewText[:120] + "..."
 				}
+				mediaURL := ""
+				fileName := ""
+				msgType := existing.Type
+				if existing.Attachment != nil {
+					mediaURL = existing.Attachment.URL
+					if mediaURL == "" && existing.Attachment.DataURL != "" {
+						mediaURL = existing.Attachment.DataURL
+					}
+					fileName = existing.Attachment.FileName
+					if existing.Attachment.Kind == "image" {
+						msgType = "image"
+					} else if existing.Attachment.Kind == "audio" {
+						msgType = "voice"
+					} else if existing.Attachment.Kind == "document" {
+						msgType = "file"
+					}
+				} else if existing.Poll != nil {
+					msgType = "poll"
+				}
 				msg.ReplyPreview = &ReplyPreview{
 					ID:       existing.ID,
 					Nickname: existing.Nickname,
 					Content:  previewText,
+					Type:     msgType,
+					MediaURL: mediaURL,
+					FileName: fileName,
 				}
 				break
 			}

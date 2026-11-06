@@ -45,6 +45,40 @@ func TestRoomStore_EditPinReadAndFilteredMessages(t *testing.T) {
 		t.Fatalf("expected reply preview to be automatically resolved, got %+v", m2.ReplyPreview)
 	}
 
+	// Verify reply to image attachment resolves rich preview (type, media_url, file_name)
+	imgMsg := &ChatMessage{
+		ID:       uuid.New().String(),
+		RoomID:   room.ID,
+		UserID:   "Otavio",
+		Nickname: "Otavio",
+		Content:  "Foto da equipe",
+		Type:     "image",
+		Attachment: &MessageAttachment{
+			ID:       "att-123",
+			Kind:     "image",
+			FileName: "equipe.png",
+			URL:      "/api/attachments/att-123",
+		},
+		CreatedAt: time.Now().Add(2 * time.Second),
+	}
+	store.AddMessage(imgMsg)
+
+	replyImgMsg := &ChatMessage{
+		ID:        uuid.New().String(),
+		RoomID:    room.ID,
+		UserID:    "Pedro",
+		Nickname:  "Pedro",
+		Content:   "Ficou excelente a foto!",
+		Type:      "text",
+		ReplyToID: imgMsg.ID,
+		CreatedAt: time.Now().Add(3 * time.Second),
+	}
+	store.AddMessage(replyImgMsg)
+
+	if replyImgMsg.ReplyPreview == nil || replyImgMsg.ReplyPreview.Type != "image" || replyImgMsg.ReplyPreview.MediaURL != "/api/attachments/att-123" || replyImgMsg.ReplyPreview.FileName != "equipe.png" {
+		t.Fatalf("expected rich reply preview for image message, got %+v", replyImgMsg.ReplyPreview)
+	}
+
 	// Non-author non-admin cannot edit m1
 	if _, ok := store.EditMessage(room.ID, m1.ID, "Raul", "Tentativa inválida"); ok {
 		t.Errorf("expected non-author non-admin edit to be rejected")
