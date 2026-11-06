@@ -31,6 +31,7 @@ export interface User {
 
 export interface ProfileUpdateRequest {
   nickname?: string;
+  avatar_url?: string;
   avatar_color?: string;
   status_text?: string;
   bio?: string;

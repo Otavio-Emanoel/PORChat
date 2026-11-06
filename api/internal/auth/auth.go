@@ -62,6 +62,7 @@ type Claims struct {
 
 type ProfileUpdateReq struct {
 	Nickname    string `json:"nickname"`
+	AvatarURL   string `json:"avatar_url"`
 	AvatarColor string `json:"avatar_color"`
 	StatusText  string `json:"status_text"`
 	Bio         string `json:"bio"`
@@ -344,6 +345,37 @@ func (s *UserStore) SearchUsers(query string, excludeUserID string) []*User {
 	return results
 }
 
+func (s *UserStore) GetOrCreateUser(nickname string) *User {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	clean := strings.TrimSpace(nickname)
+	if clean == "" {
+		clean = "Player"
+	}
+	lower := strings.ToLower(clean)
+	if u, exists := s.byNickname[lower]; exists {
+		return u.PublicCopy()
+	}
+
+	newID := uuid.New().String()
+	email := lower + "@porchat.app"
+	newUser := &User{
+		ID:          newID,
+		Nickname:    clean,
+		Email:       email,
+		AvatarColor: "#6C5CE7",
+		StatusText:  "Disponível no PORChat",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	s.byID[newID] = newUser
+	s.byNickname[lower] = newUser
+	s.users[email] = newUser
+	go func() { _ = s.SaveToDisk("data/user_store.json") }()
+	return newUser.PublicCopy()
+}
+
 func (s *UserStore) UpdateProfile(userID string, req ProfileUpdateReq) (*User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -367,6 +399,18 @@ func (s *UserStore) UpdateProfile(userID string, req ProfileUpdateReq) (*User, e
 		delete(s.byNickname, strings.ToLower(u.Nickname))
 		u.Nickname = cleanNick
 		s.byNickname[strings.ToLower(cleanNick)] = u
+	}
+
+	if req.AvatarURL != "" {
+		cleanURL := strings.TrimSpace(req.AvatarURL)
+		if strings.EqualFold(cleanURL, "clear") || cleanURL == "none" {
+			u.AvatarURL = ""
+		} else {
+			if len(cleanURL) > 500 {
+				cleanURL = cleanURL[:500]
+			}
+			u.AvatarURL = cleanURL
+		}
 	}
 
 	if req.AvatarColor != "" {
@@ -605,9 +649,22 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	var targetUserID string
 	claims, _, err := h.AuthenticateRequest(r)
-	if err != nil {
-		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusUnauthorized)
+	if err == nil && claims != nil && claims.UserID != "" {
+		targetUserID = claims.UserID
+	} else {
+		userQuery := strings.TrimSpace(r.URL.Query().Get("user"))
+		if userQuery != "" {
+			u := h.Store.GetOrCreateUser(userQuery)
+			if u != nil {
+				targetUserID = u.ID
+			}
+		}
+	}
+
+	if targetUserID == "" {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
 
@@ -617,7 +674,7 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updatedUser, err := h.Store.UpdateProfile(claims.UserID, req)
+	updatedUser, err := h.Store.UpdateProfile(targetUserID, req)
 	if err != nil {
 		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
 		return
