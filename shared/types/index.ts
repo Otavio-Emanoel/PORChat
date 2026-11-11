@@ -575,6 +575,12 @@ export interface SysRoomUpdatedPayload {
   room: Room;
 }
 
+export interface AuthSessionTerminatedPayload {
+  reason: string;
+  new_client_type?: ClientType;
+  user_id?: string;
+}
+
 // -------------------------------------------------------------
 // Security & Cryptographic Integrity Exports
 // -------------------------------------------------------------
