@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StatusBar, View, ActivityIndicator } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { WebSocketProvider, useWebSocketContext } from './src/context/WebSocketContext';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { ControllerScreen } from './src/screens/ControllerScreen';
@@ -47,8 +48,10 @@ function MainNavigator() {
 
 export default function App() {
   return (
-    <WebSocketProvider>
-      <MainNavigator />
-    </WebSocketProvider>
+    <SafeAreaProvider>
+      <WebSocketProvider>
+        <MainNavigator />
+      </WebSocketProvider>
+    </SafeAreaProvider>
   );
 }
