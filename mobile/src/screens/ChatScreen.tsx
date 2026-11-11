@@ -7,7 +7,6 @@ import {
   FlatList,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   Modal,
@@ -17,13 +16,19 @@ import {
   Image,
   Linking,
   ActivityIndicator,
+  Keyboard,
+  StatusBar,
+  Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
+import { TactileButton } from '../components/TactileButton';
+import { FloatingReaction } from '../components/FloatingReaction';
 import type {
   ChatMessage,
   MessageAttachment,
@@ -120,6 +125,16 @@ const REACTION_CONFIG: Record<
   applause: { iconName: 'trophy', label: 'Aplausos', color: '#FDCB6E', bgColor: '#FFF8E7' },
   laugh: { iconName: 'happy', label: 'Boa', color: '#FECA57', bgColor: '#FFF9EB' },
   liked: { iconName: 'thumbs-up', label: 'Curtir', color: '#0984E3', bgColor: '#E8F4FD' },
+};
+
+const REACTION_EMOJIS: Record<string, string> = {
+  like: '👍',
+  heart: '❤️',
+  agree: '✅',
+  fire: '🔥',
+  applause: '👏',
+  laugh: '😂',
+  liked: '👍',
 };
 
 const getReactionMeta = (rawKey: string) => {
@@ -232,6 +247,14 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const [leaderboardData, setLeaderboardData] = useState<RoomLeaderboardEntry[]>([]);
   const [historyData, setHistoryData] = useState<MatchHistoryRecord[]>([]);
 
+  // Safe Area Insets
+  const insets = useSafeAreaInsets();
+
+  // Floating Reactions State
+  const [floatingReactions, setFloatingReactions] = useState<
+    { id: string; emoji: string; startX: number }[]
+  >([]);
+
   // Reply & Edit State
   const [replyingTo, setReplyingTo] = useState<{
     id: string;
@@ -249,7 +272,61 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   // Animations & Refs
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fabScaleAnim = useRef(new Animated.Value(1)).current;
+  const replyBarAnim = useRef(new Animated.Value(0)).current;
+  const sendScaleAnim = useRef(new Animated.Value(1)).current;
+  const actionSheetScaleAnim = useRef(new Animated.Value(0.85)).current;
+  const actionSheetOpacityAnim = useRef(new Animated.Value(0)).current;
+  const actionSheetTranslateAnim = useRef(new Animated.Value(35)).current;
   const flatListRef = useRef<FlatList>(null);
+
+  // Animate Reply / Edit Context Bar
+  useEffect(() => {
+    if (replyingTo || editingMessage) {
+      replyBarAnim.setValue(0);
+      Animated.spring(replyBarAnim, {
+        toValue: 1,
+        friction: 7,
+        tension: 70,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      replyBarAnim.setValue(0);
+    }
+  }, [replyingTo, editingMessage]);
+
+  // Animate Action Sheet on Message Long Press
+  useEffect(() => {
+    if (selectedMessageForActions) {
+      actionSheetScaleAnim.setValue(0.85);
+      actionSheetOpacityAnim.setValue(0);
+      actionSheetTranslateAnim.setValue(35);
+      Animated.parallel([
+        Animated.spring(actionSheetScaleAnim, { toValue: 1, friction: 6, tension: 70, useNativeDriver: true }),
+        Animated.timing(actionSheetOpacityAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.spring(actionSheetTranslateAnim, { toValue: 0, friction: 6, tension: 70, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [selectedMessageForActions]);
+
+  // Auto-scroll when keyboard opens
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    );
+    return () => showSub.remove();
+  }, []);
+
+  const spawnFloatingReaction = (emoji: string) => {
+    const screenWidth = Dimensions.get('window').width;
+    const randomX = Math.floor(Math.random() * (screenWidth - 120)) + 60;
+    const newId = `${Date.now()}_${Math.random()}`;
+    setFloatingReactions((prev) => [...prev, { id: newId, emoji, startX: randomX }]);
+  };
 
   const getAvatarBgColor = (idOrName: string) => {
     const palette = ['#6C5CE7', '#FF7675', '#00CEC9', '#FDCB6E', '#A29BFE', '#E17055', '#0984E3', '#00B894'];
@@ -473,6 +550,17 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
 
   // Handle Input in Chat
   const [inputText, setInputText] = useState('');
+
+  // Animate Send Button when message becomes sendable
+  const hasSendableContent = Boolean(inputText.trim() || pendingAttachment);
+  useEffect(() => {
+    if (hasSendableContent) {
+      Animated.sequence([
+        Animated.timing(sendScaleAnim, { toValue: 1.15, duration: 90, useNativeDriver: true }),
+        Animated.spring(sendScaleAnim, { toValue: 1, friction: 4, tension: 80, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [hasSendableContent, sendScaleAnim]);
   const handleInputChange = (text: string) => {
     setInputText(text);
     if (text.trim().length > 0) {
@@ -1383,9 +1471,10 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                       borderWidth: 1.5,
                     },
                   ]}
-                  onPress={() =>
-                    sendAction('chat:reaction', { message_id: item.id, emoji: key })
-                  }
+                  onPress={() => {
+                    spawnFloatingReaction(REACTION_EMOJIS[key] || '✨');
+                    sendAction('chat:reaction', { message_id: item.id, emoji: key });
+                  }}
                 >
                   <Ionicons
                     name={meta.iconName}
@@ -1416,7 +1505,8 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   // ==========================================================================
   if (currentView === 'list') {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" />
         {!isConnected && (
           <View style={styles.offlineBanner}>
             <Text style={styles.offlineBannerText}>
@@ -1426,7 +1516,17 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         )}
 
         {/* WhatsApp Top Brand Bar */}
-        <View style={styles.waHeader}>
+        <View
+          style={[
+            styles.waHeader,
+            {
+              paddingTop: Math.max(
+                insets.top,
+                Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 12
+              ),
+            },
+          ]}
+        >
           <View style={styles.waBrandRow}>
             <View style={styles.logoBadge}>
               <Text style={styles.logoBadgeText}>POR</Text>
@@ -1530,7 +1630,10 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           <FlatList
             data={filteredContacts}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: Math.max(insets.bottom + 90, 90) },
+            ]}
             refreshing={isRefreshing}
             onRefresh={handleRefresh}
             renderItem={({ item }) => (
@@ -1567,7 +1670,10 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           <FlatList
             data={filteredRooms}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: Math.max(insets.bottom + 90, 90) },
+            ]}
             refreshing={isRefreshing}
             onRefresh={handleRefresh}
             renderItem={({ item }) => {
@@ -1613,7 +1719,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         )}
 
         {/* Floating Action Button (FAB) - NOVO GRUPO */}
-        <Animated.View style={[styles.fabContainer, { transform: [{ scale: fabScaleAnim }] }]}>
+        <Animated.View
+          style={[
+            styles.fabContainer,
+            {
+              bottom: Math.max(insets.bottom + 20, 24),
+              transform: [{ scale: fabScaleAnim }],
+            },
+          ]}
+        >
           <TouchableOpacity
             style={styles.fabButton}
             onPress={() => setShowCreateGroupModal(true)}
@@ -1940,7 +2054,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             </View>
           </View>
         </Modal>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -1950,7 +2064,8 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
   const isCurrentGroup = currentRoomInfo?.is_group ?? true;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" />
       {!isConnected && (
         <View style={styles.offlineBanner}>
           <Text style={styles.offlineBannerText}>
@@ -1960,7 +2075,17 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
       )}
 
       {/* Top Conversation Header */}
-      <View style={styles.chatViewHeader}>
+      <View
+        style={[
+          styles.chatViewHeader,
+          {
+            paddingTop: Math.max(
+              insets.top,
+              Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 12
+            ),
+          },
+        ]}
+      >
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => {
@@ -2099,9 +2224,12 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         </View>
       )}
 
-      {/* Messages Feed */}
+      {/* Messages Feed & Interactive Input Area */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={
+          Platform.OS === 'ios' ? Math.max(insets.top, 20) + 54 : 0
+        }
         style={styles.chatArea}
       >
         <FlatList
@@ -2117,7 +2245,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           }
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
-          contentContainerStyle={styles.messageList}
+          contentContainerStyle={[styles.messageList, { paddingBottom: 16 }]}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          onContentSizeChange={() => {
+            if (!chatSearchQuery.trim()) {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }
+          }}
           ListEmptyComponent={
             chatSearchQuery.trim() ? (
               <View style={styles.emptyMessagesContainer}>
@@ -2149,7 +2285,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           }
         />
 
-        {/* Reply / Edit Context Bar */}
+        {/* Reply / Edit Context Bar with Smooth Spring Animation */}
         {(replyingTo || editingMessage) && (() => {
           const isReplyImage =
             replyingTo?.type === 'image' ||
@@ -2174,7 +2310,28 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               : null);
 
           return (
-            <View style={styles.replyContextBar}>
+            <Animated.View
+              style={[
+                styles.replyContextBar,
+                {
+                  opacity: replyBarAnim,
+                  transform: [
+                    {
+                      translateY: replyBarAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [24, 0],
+                      }),
+                    },
+                    {
+                      scale: replyBarAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.96, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
               <View style={styles.replyContextInnerRow}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.replyContextTitle}>
@@ -2262,7 +2419,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
               >
                 <Ionicons name="close" size={18} color="#636E72" />
               </TouchableOpacity>
-            </View>
+            </Animated.View>
           );
         })()}
 
@@ -2297,8 +2454,15 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           </View>
         )}
 
-        {/* Message Input Bar */}
-        <View style={styles.inputContainer}>
+        {/* Message Input Bar with Safe Area Bottom */}
+        <View
+          style={[
+            styles.inputContainer,
+            {
+              paddingBottom: Math.max(insets.bottom, 10),
+            },
+          ]}
+        >
           <TouchableOpacity
             style={styles.attachTriggerBtn}
             onPress={() => setShowAttachmentMenu(true)}
@@ -2324,21 +2488,23 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             editable={!isUploadingAttachment}
           />
 
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              (!inputText.trim() && !pendingAttachment) && styles.sendButtonDisabled,
-            ]}
-            onPress={handleSend}
-            activeOpacity={0.8}
-            disabled={(!inputText.trim() && !pendingAttachment) || isUploadingAttachment}
-          >
-            {isUploadingAttachment ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Ionicons name="send" size={16} color="#FFF" />
-            )}
-          </TouchableOpacity>
+          <Animated.View style={{ transform: [{ scale: sendScaleAnim }] }}>
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                (!inputText.trim() && !pendingAttachment) && styles.sendButtonDisabled,
+              ]}
+              onPress={handleSend}
+              activeOpacity={0.8}
+              disabled={(!inputText.trim() && !pendingAttachment) || isUploadingAttachment}
+            >
+              {isUploadingAttachment ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <Ionicons name="send" size={16} color="#FFF" />
+              )}
+            </TouchableOpacity>
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
 
@@ -2655,8 +2821,18 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           activeOpacity={1}
           onPress={() => setSelectedMessageForActions(null)}
         >
-          <View
-            style={styles.actionSheetContainer}
+          <Animated.View
+            style={[
+              styles.actionSheetContainer,
+              {
+                paddingBottom: Math.max(insets.bottom + 16, 24),
+                transform: [
+                  { scale: actionSheetScaleAnim },
+                  { translateY: actionSheetTranslateAnim },
+                ],
+                opacity: actionSheetOpacityAnim,
+              },
+            ]}
             onStartShouldSetResponder={() => true}
           >
             {/* Sheet Handle */}
@@ -2682,6 +2858,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                     ]}
                     onPress={() => {
                       if (selectedMessageForActions) {
+                        spawnFloatingReaction(REACTION_EMOJIS[rKey] || '✨');
                         sendAction('chat:reaction', {
                           message_id: selectedMessageForActions.id,
                           emoji: rKey,
@@ -2813,7 +2990,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             >
               <Text style={styles.actionSheetCancelText}>Fechar</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </TouchableOpacity>
       </Modal>
 
@@ -2988,7 +3165,17 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
         onRequestClose={() => setFullscreenImageUri(null)}
       >
         <View style={styles.fullscreenBackdrop}>
-          <SafeAreaView style={styles.fullscreenHeader}>
+          <View
+            style={[
+              styles.fullscreenHeader,
+              {
+                paddingTop: Math.max(
+                  insets.top,
+                  Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 12
+                ),
+              },
+            ]}
+          >
             <TouchableOpacity
               style={styles.fullscreenCloseBtn}
               onPress={() => setFullscreenImageUri(null)}
@@ -3004,7 +3191,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             >
               <Ionicons name="open-outline" size={20} color="#FFF" />
             </TouchableOpacity>
-          </SafeAreaView>
+          </View>
 
           <View style={styles.fullscreenImageContainer}>
             {fullscreenImageUri && (
@@ -3017,7 +3204,20 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+
+      {/* Floating Reactions Layer */}
+      {floatingReactions.map((fr) => (
+        <FloatingReaction
+          key={fr.id}
+          id={fr.id}
+          emoji={fr.emoji}
+          startX={fr.startX}
+          onComplete={(id) => {
+            setFloatingReactions((prev) => prev.filter((r) => r.id !== id));
+          }}
+        />
+      ))}
+    </View>
   );
 };
 
