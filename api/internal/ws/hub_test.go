@@ -206,6 +206,34 @@ func TestHub_InboundChatSendAndReaction(t *testing.T) {
 	}
 }
 
+func TestHub_SingleSessionEnforcement(t *testing.T) {
+	hub, _ := setupTestHub(t)
+
+	c1 := createTestClient(hub, "room-A", "user-otavio", "Otavio", "web")
+	hub.Register <- c1
+	time.Sleep(30 * time.Millisecond)
+	for len(c1.Send) > 0 {
+		<-c1.Send
+	}
+
+	// c2 logs in with same user ID from mobile
+	c2 := createTestClient(hub, "room-A", "user-otavio", "Otavio", "mobile")
+	hub.Register <- c2
+	time.Sleep(30 * time.Millisecond)
+
+	// c1 must receive auth:session_terminated
+	if len(c1.Send) == 0 {
+		t.Fatalf("Expected c1 to receive auth:session_terminated message")
+	}
+	var env Envelope
+	if err := json.Unmarshal(<-c1.Send, &env); err != nil {
+		t.Fatalf("Failed to parse envelope: %v", err)
+	}
+	if env.Event != "auth:session_terminated" {
+		t.Errorf("Expected event auth:session_terminated, got %s", env.Event)
+	}
+}
+
 func TestHub_ConcurrentReadWriteRace(t *testing.T) {
 	hub, _ := setupTestHub(t)
 

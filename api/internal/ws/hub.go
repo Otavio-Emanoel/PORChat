@@ -78,11 +78,19 @@ func (h *Hub) handleRegister(c *Client) {
 		h.rooms[c.RoomID] = make(map[*Client]bool)
 	}
 
-	// Purge stale ghost connections for the same user and client_type in this room
-	for cl := range h.rooms[c.RoomID] {
-		if cl != c && cl.UserID == c.UserID && cl.ClientType == c.ClientType {
-			delete(h.rooms[c.RoomID], cl)
-			cl.Close()
+	// Purge existing connections for the same user account across all rooms (Single active session enforcement)
+	var staleClients []*Client
+	if c.ClientType != "tv" {
+		for roomID, roomClients := range h.rooms {
+			for cl := range roomClients {
+				if cl != c && cl.UserID == c.UserID && cl.ClientType != "tv" {
+					delete(roomClients, cl)
+					staleClients = append(staleClients, cl)
+				}
+			}
+			if len(roomClients) == 0 && roomID != c.RoomID {
+				delete(h.rooms, roomID)
+			}
 		}
 	}
 
@@ -108,6 +116,22 @@ func (h *Hub) handleRegister(c *Client) {
 		}
 	}
 	h.mu.Unlock()
+
+	// Notify stale sessions that another device logged in and terminate them cleanly
+	for _, cl := range staleClients {
+		termEnv, _ := NewEnvelope("auth:session_terminated", cl.RoomID, map[string]interface{}{
+			"reason":          "Sua conta foi conectada em outro dispositivo. Você foi desconectado.",
+			"new_client_type": c.ClientType,
+			"user_id":         c.UserID,
+		})
+		if data, err := json.Marshal(termEnv); err == nil {
+			cl.SafeSend(data)
+		}
+		go func(target *Client) {
+			time.Sleep(100 * time.Millisecond)
+			target.Close()
+		}(cl)
+	}
 
 	// 1. Send sys:connected to the newly connected client
 	connectedPayload := map[string]interface{}{
