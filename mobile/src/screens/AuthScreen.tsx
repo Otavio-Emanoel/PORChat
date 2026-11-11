@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,15 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useWebSocketContext } from '../context/WebSocketContext';
+import { TactileButton } from '../components/TactileButton';
 
 const DEMO_USERS = [
   {
@@ -41,6 +43,7 @@ const DEMO_USERS = [
 ];
 
 export function AuthScreen() {
+  const insets = useSafeAreaInsets();
   const {
     loginWithCredentials,
     registerWithCredentials,
@@ -59,6 +62,36 @@ export function AuthScreen() {
   const [loadingDemo, setLoadingDemo] = useState<string | null>(null);
   const [showHostConfig, setShowHostConfig] = useState(false);
   const [tempHost, setTempHost] = useState(serverHost);
+
+  // Gentle floating animation for brand logo
+  const floatAnim = useRef(new Animated.Value(0)).current;
+  const formFadeAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, {
+          toValue: -8,
+          duration: 1800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnim, {
+          toValue: 0,
+          duration: 1800,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [floatAnim]);
+
+  const switchMode = (newMode: 'login' | 'register') => {
+    if (newMode === mode) return;
+    Animated.sequence([
+      Animated.timing(formFadeAnim, { toValue: 0.2, duration: 90, useNativeDriver: true }),
+      Animated.timing(formFadeAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+    ]).start();
+    setMode(newMode);
+  };
 
   const handleSubmit = async () => {
     if (!email.trim() || !password.trim()) {
@@ -117,18 +150,27 @@ export function AuthScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View
+      style={[
+        styles.safeArea,
+        {
+          paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 16),
+          paddingBottom: Math.max(insets.bottom, 16),
+        },
+      ]}
+    >
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* Header Brand */}
-          <View style={styles.brandHeader}>
+          {/* Header Brand with Gentle Floating Animation */}
+          <Animated.View style={[styles.brandHeader, { transform: [{ translateY: floatAnim }] }]}>
             <View style={styles.logoBadge}>
               <Text style={styles.logoBadgeText}>POR</Text>
             </View>
@@ -136,7 +178,7 @@ export function AuthScreen() {
             <Text style={styles.brandSubtitle}>
               Pedro, Otavio & Raul • Chat & Party Games
             </Text>
-          </View>
+          </Animated.View>
 
           {/* Session Termination Notice Banner */}
           {sessionTerminationNotice && (
@@ -164,29 +206,29 @@ export function AuthScreen() {
               {DEMO_USERS.map((u) => {
                 const isSelected = loadingDemo === u.name;
                 return (
-                  <TouchableOpacity
-                    key={u.name}
-                    style={[
-                      styles.demoCard,
-                      { borderTopColor: u.color, borderTopWidth: 4 },
-                      isSelected && styles.demoCardActive,
-                    ]}
-                    onPress={() => handleDemoLogin(u.email, u.name)}
-                    disabled={loading || loadingDemo !== null}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[styles.demoAvatar, { backgroundColor: u.color }]}>
-                      {isSelected ? (
-                        <ActivityIndicator size="small" color="#FFF" />
-                      ) : (
-                        <Text style={styles.demoAvatarText}>{u.name[0]}</Text>
-                      )}
-                    </View>
-                    <Text style={styles.demoCardName}>{u.name}</Text>
-                    <Text style={styles.demoCardRole} numberOfLines={1}>
-                      {u.role.split('•')[1]?.trim() || u.role}
-                    </Text>
-                  </TouchableOpacity>
+                  <View key={u.name} style={{ flex: 1 }}>
+                    <TactileButton
+                      style={[
+                        styles.demoCard,
+                        { borderTopColor: u.color, borderTopWidth: 4 },
+                        isSelected && styles.demoCardActive,
+                      ]}
+                      onPress={() => handleDemoLogin(u.email, u.name)}
+                      disabled={loading || loadingDemo !== null}
+                    >
+                      <View style={[styles.demoAvatar, { backgroundColor: u.color }]}>
+                        {isSelected ? (
+                          <ActivityIndicator size="small" color="#FFF" />
+                        ) : (
+                          <Text style={styles.demoAvatarText}>{u.name[0]}</Text>
+                        )}
+                      </View>
+                      <Text style={styles.demoCardName}>{u.name}</Text>
+                      <Text style={styles.demoCardRole} numberOfLines={1}>
+                        {u.role.split('•')[1]?.trim() || u.role}
+                      </Text>
+                    </TactileButton>
+                  </View>
                 );
               })}
             </View>
@@ -198,7 +240,7 @@ export function AuthScreen() {
             <View style={styles.tabContainer}>
               <TouchableOpacity
                 style={[styles.tabBtn, mode === 'login' && styles.tabBtnActive]}
-                onPress={() => setMode('login')}
+                onPress={() => switchMode('login')}
                 activeOpacity={0.7}
               >
                 <Text style={[styles.tabBtnText, mode === 'login' && styles.tabBtnTextActive]}>
@@ -207,7 +249,7 @@ export function AuthScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.tabBtn, mode === 'register' && styles.tabBtnActive]}
-                onPress={() => setMode('register')}
+                onPress={() => switchMode('register')}
                 activeOpacity={0.7}
               >
                 <Text style={[styles.tabBtnText, mode === 'register' && styles.tabBtnTextActive]}>
@@ -216,79 +258,80 @@ export function AuthScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Form Fields */}
-            {mode === 'register' && (
+            {/* Form Fields Animated */}
+            <Animated.View style={{ opacity: formFadeAnim }}>
+              {mode === 'register' && (
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Apelido / Nome</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="person-outline" size={18} color="#8892B0" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Ex: Joãozinho"
+                      placeholderTextColor="#64748B"
+                      value={nickname}
+                      onChangeText={setNickname}
+                      autoCapitalize="words"
+                      editable={!loading}
+                    />
+                  </View>
+                </View>
+              )}
+
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>Apelido / Nome</Text>
+                <Text style={styles.fieldLabel}>E-mail</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="person-outline" size={18} color="#8892B0" style={styles.inputIcon} />
+                  <Ionicons name="mail-outline" size={18} color="#8892B0" style={styles.inputIcon} />
                   <TextInput
                     style={styles.textInput}
-                    placeholder="Ex: Joãozinho"
+                    placeholder="seu@email.com"
                     placeholderTextColor="#64748B"
-                    value={nickname}
-                    onChangeText={setNickname}
-                    autoCapitalize="words"
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
                     editable={!loading}
                   />
                 </View>
               </View>
-            )}
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>E-mail</Text>
-              <View style={styles.inputWrapper}>
-                <Ionicons name="mail-outline" size={18} color="#8892B0" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="seu@email.com"
-                  placeholderTextColor="#64748B"
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  editable={!loading}
-                />
-              </View>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Senha</Text>
-              <View style={styles.inputWrapper}>
-                <Ionicons name="lock-closed-outline" size={18} color="#8892B0" style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.textInput, { flex: 1 }]}
-                  placeholder="Sua senha secreta"
-                  placeholderTextColor="#64748B"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  editable={!loading}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword((prev) => !prev)}
-                  style={{ padding: 6 }}
-                >
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={18}
-                    color="#8892B0"
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Senha</Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="lock-closed-outline" size={18} color="#8892B0" style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.textInput, { flex: 1 }]}
+                    placeholder="Sua senha secreta"
+                    placeholderTextColor="#64748B"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    editable={!loading}
                   />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setShowPassword((prev) => !prev)}
+                    style={{ padding: 6 }}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={18}
+                      color="#8892B0"
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
+            </Animated.View>
 
             {/* Submit CTA */}
-            <TouchableOpacity
+            <TactileButton
               style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
               onPress={handleSubmit}
               disabled={loading || loadingDemo !== null}
-              activeOpacity={0.8}
             >
               {loading ? (
                 <ActivityIndicator color="#FFF" size="small" />
               ) : (
-                <>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons
                     name={mode === 'login' ? 'log-in-outline' : 'person-add-outline'}
                     size={20}
@@ -298,9 +341,9 @@ export function AuthScreen() {
                   <Text style={styles.submitBtnText}>
                     {mode === 'login' ? 'Entrar no PORChat' : 'Cadastrar e Conectar'}
                   </Text>
-                </>
+                </View>
               )}
-            </TouchableOpacity>
+            </TactileButton>
           </View>
 
           {/* Server Config Collapsible */}
@@ -353,7 +396,7 @@ export function AuthScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
