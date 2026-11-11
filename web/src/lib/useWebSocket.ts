@@ -20,6 +20,7 @@ interface UseWebSocketOptions {
   nickname: string;
   token?: string;
   clientType?: ClientType;
+  onSessionTerminated?: (reason: string) => void;
 }
 
 export function useWebSocket({
@@ -27,6 +28,7 @@ export function useWebSocket({
   nickname,
   token,
   clientType = 'web',
+  onSessionTerminated,
 }: UseWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
@@ -269,6 +271,27 @@ export function useWebSocket({
         if (p && p.message_id) {
           setMessages((prev) => prev.filter((m) => m.id !== p.message_id));
           setPinnedMessage((prev) => (prev && prev.message_id === p.message_id ? null : prev));
+        }
+        break;
+      }
+
+      case 'auth:session_terminated': {
+        const p = envelope.payload as { reason?: string };
+        const reason =
+          p?.reason ||
+          'Sua conta foi conectada em outro dispositivo. Você foi desconectado.';
+        isClosingExplicitlyRef.current = true;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        if (socketRef.current) {
+          socketRef.current.close();
+          socketRef.current = null;
+        }
+        setIsConnected(false);
+        if (onSessionTerminated) {
+          onSessionTerminated(reason);
         }
         break;
       }
