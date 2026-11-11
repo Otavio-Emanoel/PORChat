@@ -97,7 +97,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [typingUsers, setTypingUsers] = useState<Record<string, { nickname: string; timestamp: number }>>({});
 
   const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isClosingExplicitlyRef = useRef<boolean>(false);
   const roomIdRef = useRef<string>(roomId);
 

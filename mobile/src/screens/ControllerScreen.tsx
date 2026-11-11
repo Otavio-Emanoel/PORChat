@@ -117,7 +117,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
   const questionStartRef = useRef<number>(Date.now());
 
   const [comboCount, setComboCount] = useState(0);
-  const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const comboTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isQuiz = gameState?.game_type === 'quiz';
   const phase = gameState?.phase || 'CHAT';

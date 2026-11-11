@@ -457,7 +457,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     }
   }, [isGameActive]);
 
-  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const formatRoomPin = (input: string) => {
     let clean = input.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -2107,7 +2107,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                   </Text>
                 ))}
               </View>
-            ) : null
+            ) : undefined
           }
         />
 
