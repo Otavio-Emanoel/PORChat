@@ -1,0 +1,14 @@
+.git
+.github
+.agents
+.gemini
+node_modules
+web/node_modules
+web/.next
+mobile/node_modules
+mobile/android
+mobile/ios
+mobile/.expo
+data/
+*.log
+

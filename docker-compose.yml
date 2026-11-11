@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api:
     build:
@@ -24,8 +22,8 @@ services:
 
   web:
     build:
-      context: ./web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: web/Dockerfile
     container_name: porchat-web
     restart: unless-stopped
     ports:
