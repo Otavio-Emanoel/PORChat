@@ -1,40 +1,51 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: porchat-postgres
-    restart: always
-    environment:
-      POSTGRES_USER: porchat
-      POSTGRES_PASSWORD: porchat_secret
-      POSTGRES_DB: porchat
-    ports:
-      - "5439:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U porchat -d porchat"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
     container_name: porchat-api
-    restart: always
+    restart: unless-stopped
     ports:
       - "8081:8081"
     environment:
       PORT: "8081"
-      DATABASE_URL: "postgres://porchat:porchat_secret@postgres:5432/porchat?sslmode=disable"
-      JWT_SECRET: "porchat-super-secure-production-secret"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      JWT_SECRET: "${JWT_SECRET:-porchat-super-secure-production-secret}"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - porchat-network
 
-volumes:
-  pgdata:
-    driver: local
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: porchat-web
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      NODE_ENV: "production"
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8081}"
+      NEXT_PUBLIC_WS_URL: "${NEXT_PUBLIC_WS_URL:-ws://localhost:8081/ws}"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - porchat-network
+
+networks:
+  porchat-network:
+    driver: bridge

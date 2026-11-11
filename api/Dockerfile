@@ -17,10 +17,14 @@ FROM alpine:3.19 AS runner
 
 WORKDIR /app
 
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add ca-certificates tzdata curl && mkdir -p /app/data
 
 COPY --from=builder /app/server .
 
-EXPOSE 8080
+ENV PORT=8081
+EXPOSE 8081
+
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
+  CMD curl -f http://localhost:8081/health || exit 1
 
 CMD ["./server"]
