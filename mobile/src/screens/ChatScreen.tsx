@@ -164,6 +164,7 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
     sendAction,
     updateMobileProfile,
     uploadAttachment,
+    logout,
   } = useWebSocketContext();
 
   // Attachments & Media State
@@ -1457,6 +1458,23 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
             >
               <Text style={styles.pinCodeBtnText}># Entrar</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerLogoutBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Sair da Conta',
+                  'Deseja realmente sair e desconectar?',
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Sair', style: 'destructive', onPress: () => logout() },
+                  ]
+                );
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="log-out-outline" size={18} color="#FF7675" />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -1862,6 +1880,26 @@ export const ChatScreen: React.FC<{ onOpenController: () => void }> = ({ onOpenC
                   onPress={() => setShowProfileModal(false)}
                 >
                   <Text style={styles.closeModalBtnText}>Cancelar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.closeModalBtn, { backgroundColor: '#FEE2E2', borderColor: '#FECACA', marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
+                  onPress={() => {
+                    setShowProfileModal(false);
+                    Alert.alert(
+                      'Sair da Conta',
+                      'Deseja realmente sair do PORChat?',
+                      [
+                        { text: 'Cancelar', style: 'cancel' },
+                        { text: 'Sair', style: 'destructive', onPress: () => logout() },
+                      ]
+                    );
+                  }}
+                >
+                  <Ionicons name="log-out-outline" size={18} color="#EF4444" style={{ marginRight: 6 }} />
+                  <Text style={[styles.closeModalBtnText, { color: '#EF4444', fontWeight: 'bold' }]}>
+                    Sair da Conta (Deslogar)
+                  </Text>
                 </TouchableOpacity>
               </ScrollView>
             </View>
@@ -3046,6 +3084,15 @@ const styles = StyleSheet.create({
     color: '#495057',
     fontWeight: '700',
     fontSize: 12,
+  },
+  headerLogoutBtn: {
+    padding: 6,
+    backgroundColor: '#FFF0F0',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabBar: {
     flexDirection: 'row',

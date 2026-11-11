@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {
   WebSocketEnvelope,
   ChatMessage,
@@ -15,6 +16,7 @@ import type {
 
 interface WebSocketContextType {
   isConnected: boolean;
+  isLoadingSession: boolean;
   messages: ChatMessage[];
   onlineUsers: Array<{ id: string; nickname: string }>;
   gameState: GameStateUpdatePayload | null;
@@ -25,6 +27,8 @@ interface WebSocketContextType {
   nickname: string;
   userProfile: User | null;
   authToken: string | null;
+  sessionTerminationNotice: string | null;
+  clearSessionTerminationNotice: () => void;
   serverHost: string;
   setServerHost: (host: string) => void;
   setRoomId: (id: string) => void;
@@ -47,6 +51,8 @@ interface WebSocketContextType {
   askCourtQuestion: (question: string) => void;
   submitQuizAnswer: (choice: 'A' | 'B' | 'C' | 'D') => void;
   loginWithCredentials: (email: string, password: string) => Promise<boolean>;
+  registerWithCredentials: (nickname: string, email: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
   updateMobileProfile: (payload: {
     nickname?: string;
     avatar_color?: string;
@@ -84,9 +90,11 @@ const getDefaultHost = () => {
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roomId, setRoomId] = useState(DEFAULT_ROOM_ID);
-  const [nickname, setNickname] = useState('Otavio');
+  const [nickname, setNickname] = useState('');
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [isLoadingSession, setIsLoadingSession] = useState(true);
+  const [sessionTerminationNotice, setSessionTerminationNotice] = useState<string | null>(null);
   const [serverHost, setServerHost] = useState(getDefaultHost);
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -104,6 +112,45 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     roomIdRef.current = roomId;
   }, [roomId]);
+
+  // Restore stored session from AsyncStorage on app launch
+  useEffect(() => {
+    let isCancelled = false;
+    const loadSession = async () => {
+      try {
+        const [savedUser, savedToken, savedHost] = await Promise.all([
+          AsyncStorage.getItem('porchat_mobile_user'),
+          AsyncStorage.getItem('porchat_mobile_token'),
+          AsyncStorage.getItem('porchat_mobile_server_host'),
+        ]);
+        if (!isCancelled) {
+          if (savedHost) {
+            setServerHost(savedHost);
+          }
+          if (savedUser && savedToken) {
+            try {
+              const u: User = JSON.parse(savedUser);
+              setUserProfile(u);
+              setAuthToken(savedToken);
+              setNickname(u.nickname);
+            } catch {
+              // Corrupt session JSON
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Error reading stored mobile session:', e);
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingSession(false);
+        }
+      }
+    };
+    loadSession();
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   const handleEnvelope = useCallback((envelope: WebSocketEnvelope) => {
     switch (envelope.event) {
@@ -128,6 +175,33 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       case 'sys:user_left': {
         const payload = envelope.payload as SysUserLeftPayload;
         setOnlineUsers((prev) => prev.filter((u) => u.id !== payload.user_id));
+        break;
+      }
+
+      case 'auth:session_terminated': {
+        const payload = envelope.payload as { reason?: string };
+        const reason =
+          payload?.reason ||
+          'Sua conta foi conectada em outro dispositivo. Você foi desconectado.';
+
+        // Prevent auto-reconnection loop
+        isClosingExplicitlyRef.current = true;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        if (socketRef.current) {
+          socketRef.current.close();
+          socketRef.current = null;
+        }
+
+        // Clean local state & storage
+        AsyncStorage.multiRemove(['porchat_mobile_user', 'porchat_mobile_token']).catch(() => {});
+        setUserProfile(null);
+        setAuthToken(null);
+        setNickname('');
+        setIsConnected(false);
+        setSessionTerminationNotice(reason);
         break;
       }
 
@@ -263,7 +337,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const connect = useCallback(() => {
-    if (!roomId) return;
+    if (!roomId || !nickname || !authToken) return;
 
     if (socketRef.current) {
       isClosingExplicitlyRef.current = true;
@@ -287,10 +361,8 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       room_id: roomId,
       nickname,
       client_type: 'mobile',
+      token: authToken,
     });
-    if (authToken) {
-      params.set('token', authToken);
-    }
     const url = `ws://${host}/ws?${params.toString()}`;
 
     try {
@@ -328,13 +400,24 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [roomId, nickname, serverHost, authToken, handleEnvelope]);
 
   useEffect(() => {
-    if (!roomId) return;
+    // Only connect when authenticated and a room is selected
+    if (!roomId || !nickname || !authToken) {
+      if (socketRef.current) {
+        isClosingExplicitlyRef.current = true;
+        socketRef.current.close();
+        socketRef.current = null;
+        setIsConnected(false);
+      }
+      return;
+    }
+
     setMessages([]);
     setGameState(null);
     setTypingUsers({});
     setPinnedMessage(null);
     setRoomUpdate(null);
     let isCancelled = false;
+
     const fetchHistory = async () => {
       try {
         const host = serverHost.trim() || 'localhost:8081';
@@ -373,7 +456,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         socketRef.current = null;
       }
     };
-  }, [connect, roomId, serverHost]);
+  }, [connect, roomId, serverHost, nickname, authToken]);
 
   const sendAction = (event: string, payload: unknown) => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
@@ -474,18 +557,99 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) return false;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Credenciais inválidas');
+      }
       const data = await res.json();
       if (data.user && data.token) {
         setUserProfile(data.user);
         setAuthToken(data.token);
         setNickname(data.user.nickname);
+        setSessionTerminationNotice(null);
+        await AsyncStorage.multiSet([
+          ['porchat_mobile_user', JSON.stringify(data.user)],
+          ['porchat_mobile_token', data.token],
+          ['porchat_mobile_server_host', host],
+        ]);
         return true;
       }
       return false;
-    } catch {
-      return false;
+    } catch (e) {
+      throw e;
     }
+  };
+
+  const registerWithCredentials = async (
+    userNick: string,
+    email: string,
+    password: string
+  ): Promise<boolean> => {
+    try {
+      const host = serverHost.trim() || 'localhost:8081';
+      const res = await fetch(`http://${host}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname: userNick, email, password }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Falha ao registrar conta');
+      }
+      const data = await res.json();
+      if (data.user && data.token) {
+        setUserProfile(data.user);
+        setAuthToken(data.token);
+        setNickname(data.user.nickname);
+        setSessionTerminationNotice(null);
+        await AsyncStorage.multiSet([
+          ['porchat_mobile_user', JSON.stringify(data.user)],
+          ['porchat_mobile_token', data.token],
+          ['porchat_mobile_server_host', host],
+        ]);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      throw e;
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    isClosingExplicitlyRef.current = true;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+    if (authToken) {
+      try {
+        const host = serverHost.trim() || 'localhost:8081';
+        await fetch(`http://${host}/api/auth/logout`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      } catch {
+        // ignore
+      }
+    }
+    await AsyncStorage.multiRemove(['porchat_mobile_user', 'porchat_mobile_token']);
+    setUserProfile(null);
+    setAuthToken(null);
+    setNickname('');
+    setIsConnected(false);
+    setMessages([]);
+    setGameState(null);
+  };
+
+  const clearSessionTerminationNotice = () => {
+    setSessionTerminationNotice(null);
   };
 
   const updateMobileProfile = async (payload: {
@@ -514,7 +678,11 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (data.user) {
         setUserProfile(data.user);
         setNickname(data.user.nickname);
-        if (data.token) setAuthToken(data.token);
+        if (data.token) {
+          setAuthToken(data.token);
+          await AsyncStorage.setItem('porchat_mobile_token', data.token);
+        }
+        await AsyncStorage.setItem('porchat_mobile_user', JSON.stringify(data.user));
         return true;
       }
       return false;
@@ -563,6 +731,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     <WebSocketContext.Provider
       value={{
         isConnected,
+        isLoadingSession,
         messages,
         onlineUsers,
         gameState,
@@ -573,6 +742,8 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         nickname,
         userProfile,
         authToken,
+        sessionTerminationNotice,
+        clearSessionTerminationNotice,
         serverHost,
         setServerHost,
         setRoomId,
@@ -595,6 +766,8 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         askCourtQuestion,
         submitQuizAnswer,
         loginWithCredentials,
+        registerWithCredentials,
+        logout,
         updateMobileProfile,
         uploadAttachment,
         typingUsers,
