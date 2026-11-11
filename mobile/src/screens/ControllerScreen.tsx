@@ -5,12 +5,13 @@ import {
   TouchableOpacity,
   TextInput,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   Platform,
   Animated,
   Vibration,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { colors } from '../theme/colors';
 
@@ -194,8 +195,19 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
     (entry) => entry.nickname.toLowerCase() === nickname.toLowerCase()
   );
 
+  const insets = useSafeAreaInsets();
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        {
+          paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 16),
+          paddingBottom: Math.max(insets.bottom, 16),
+        },
+      ]}
+    >
+      <StatusBar barStyle="light-content" />
       {/* Top Controller Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
@@ -631,7 +643,7 @@ export const ControllerScreen: React.FC<{ onClose: () => void }> = ({ onClose })
           </View>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
