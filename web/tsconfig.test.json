@@ -9,6 +9,7 @@
     "skipLibCheck": true,
     "noEmit": false,
     "outDir": ".test-dist",
+    "rootDir": "..",
     "paths": {
       "@/*": ["./src/*"],
       "@porchat/shared": ["../shared/types"]
