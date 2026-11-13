@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
+    "lib": ["ES2022"],
+    "strict": true,
+    "types": ["node"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "rootDir": "src",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@porchat/shared": ["../shared/types"]
+    }
+  },
+  "include": [
+    "src/utils/security.ts",
+    "src/utils/security.test.ts",
+    "src/theme/colors.ts",
+    "src/theme/colors.test.ts"
+  ]
+}
