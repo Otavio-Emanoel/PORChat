@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "noEmit": false,
     "outDir": ".test-dist",
-    "rootDir": "src",
+    "rootDir": "..",
     "paths": {
       "@/*": ["./src/*"],
       "@porchat/shared": ["../shared/types"]
@@ -20,6 +20,8 @@
   "include": [
     "src/utils/security.ts",
     "src/utils/security.test.ts",
+    "src/utils/chatHelpers.ts",
+    "src/utils/chatHelpers.test.ts",
     "src/theme/colors.ts",
     "src/theme/colors.test.ts"
   ]
