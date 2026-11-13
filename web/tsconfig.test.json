@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["dom", "ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@porchat/shared": ["../shared/types"]
+    }
+  },
+  "include": [
+    "src/lib/security.ts",
+    "src/lib/security.test.ts",
+    "src/lib/chatExport.ts",
+    "src/lib/chatExport.test.ts",
+    "src/lib/auth.ts",
+    "src/lib/apiClient.ts",
+    "src/lib/types.ts",
+    "src/lib/authAndApi.test.ts"
+  ]
+}
